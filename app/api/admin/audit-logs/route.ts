@@ -1,0 +1,54 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { checkAdminSession } from '@/lib/admin-auth';
+import { createAdminClient } from '@/lib/supabase';
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await checkAdminSession();
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const actionType = searchParams.get('action') || 'all';
+    const search = searchParams.get('search') || '';
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const offset = (page - 1) * limit;
+
+    const supabase = createAdminClient();
+
+    let query = supabase
+      .from('audit_logs')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (actionType !== 'all') {
+      query = query.eq('action_type', actionType);
+    }
+
+    if (search) {
+      query = query.or(`roll_no.ilike.%${search}%,student_name.ilike.%${search}%,performed_by.ilike.%${search}%`);
+    }
+
+    const { data: logs, count, error } = await query;
+    if (error) throw error;
+
+    // Get count for double scans specifically (Security Update #3)
+    const { count: doubleScansCount } = await supabase
+      .from('audit_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('action_type', 'double_scan_forced');
+
+    return NextResponse.json({
+      success: true,
+      logs: logs || [],
+      total: count || 0,
+      stats: {
+        double_scans: doubleScansCount || 0,
+      },
+    });
+  } catch (err) {
+    console.error('Audit logs API error:', err);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}

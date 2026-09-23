@@ -1,0 +1,147 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { checkAdminSession } from '@/lib/admin-auth';
+import { createAdminClient } from '@/lib/supabase';
+import { getQuotaStatus, processEmailQueue, recordDirectEmailSent, recordEmailsSent } from '@/lib/email-queue';
+import { sendEmailWithFailover } from '@/lib/email-service';
+import { logAuditEvent } from '@/lib/audit';
+
+export async function GET(req: NextRequest) {
+  try {
+    const session = await checkAdminSession();
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const { searchParams } = new URL(req.url);
+    const status = searchParams.get('status') || 'all';
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const offset = (page - 1) * limit;
+
+    const quota = await getQuotaStatus();
+    const supabase = createAdminClient();
+
+    let query = supabase
+      .from('email_queue')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (status !== 'all') {
+      query = query.eq('status', status);
+    }
+
+    const { data: items, count, error } = await query;
+    if (error) throw error;
+
+    // Get count breakdown
+    const { count: totalQueued } = await supabase.from('email_queue').select('*', { count: 'exact', head: true }).eq('status', 'queued');
+    const { count: totalSent } = await supabase.from('email_queue').select('*', { count: 'exact', head: true }).eq('status', 'sent');
+    const { count: totalFailed } = await supabase.from('email_queue').select('*', { count: 'exact', head: true }).eq('status', 'failed');
+
+    return NextResponse.json({
+      success: true,
+      quota,
+      stats: {
+        queued: totalQueued || 0,
+        sent: totalSent || 0,
+        failed: totalFailed || 0,
+      },
+      items: items || [],
+      total: count || 0,
+    });
+  } catch (err) {
+    console.error('Email queue API error:', err);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const session = await checkAdminSession();
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const body = await req.json().catch(() => ({}));
+    const { action, id, to_email } = body;
+
+    if (action === 'retry' && id) {
+      const supabase = createAdminClient();
+      const { error } = await supabase
+        .from('email_queue')
+        .update({ status: 'queued', error_message: null })
+        .eq('id', id);
+
+      if (error) throw error;
+      return NextResponse.json({ success: true, message: 'Email queued for retry' });
+    }
+
+    if (action === 'process_now') {
+      const result = await processEmailQueue();
+      return NextResponse.json({
+        success: true,
+        message: `Processed ${result.processed} emails (${result.failed} failed).`,
+        result,
+      });
+    }
+
+    if (action === 'test_send') {
+      const targetEmail = to_email || session.email;
+      if (!targetEmail || !targetEmail.includes('@')) {
+        return NextResponse.json({ success: false, message: 'Valid recipient email required' }, { status: 400 });
+      }
+
+      const htmlContent = `
+        <div style="font-family:'Inter',Arial,sans-serif;max-width:540px;margin:0 auto;background:#0f172a;border-radius:16px;overflow:hidden;color:#ffffff;padding:24px;border:1px solid #334155;">
+          <h2 style="color:#60a5fa;margin-top:0;">⚡ Live Email Diagnostic Test</h2>
+          <p style="color:#cbd5e1;font-size:14px;">This is a real-time diagnostic test from the Fresher Party Scanner Admin Panel.</p>
+          <div style="background:#1e293b;border-radius:8px;padding:12px 16px;margin:16px 0;font-size:13px;color:#94a3b8;">
+            <p style="margin:4px 0;"><strong>Sender:</strong> System Email Service</p>
+            <p style="margin:4px 0;"><strong>Recipient:</strong> ${targetEmail}</p>
+            <p style="margin:4px 0;"><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+          </div>
+          <p style="color:#10b981;font-size:13px;font-weight:600;">✅ Brevo API Connection Verified & Active!</p>
+        </div>
+      `;
+
+      const sendResult = await sendEmailWithFailover(
+        targetEmail,
+        '🧪 Fresher Party System: Live Diagnostic Test Email',
+        htmlContent
+      );
+
+      if (sendResult.status === 'failed') {
+        return NextResponse.json({ success: false, message: `Send failed: ${sendResult.message}` }, { status: 502 });
+      }
+
+      await recordEmailsSent(1, sendResult.apiUsed || 'primary');
+
+      await recordDirectEmailSent({
+        student_name: session.name || 'System Admin',
+        email: targetEmail,
+        roll_no: 'DIAG-TEST',
+        department: 'Admin Diagnostic',
+        batch: '2026',
+        society: 'System',
+      });
+
+      await logAuditEvent({
+        action_type: 'email_sent',
+        performed_by: session.email,
+        user_role: session.role,
+        student_name: 'Diagnostic Test',
+        details: { to: targetEmail, api_used: sendResult.apiUsed },
+      });
+
+      const updatedQuota = await getQuotaStatus();
+      return NextResponse.json({
+        success: true,
+        message: `Diagnostic email delivered via ${sendResult.apiUsed || 'Brevo'}! Quota incremented by 1.`,
+        api_used: sendResult.apiUsed,
+        quota: updatedQuota,
+      });
+    }
+
+    return NextResponse.json({ success: false, message: 'Unknown action' }, { status: 400 });
+  } catch (err) {
+    console.error('Email queue action error:', err);
+    return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
+  }
+}
