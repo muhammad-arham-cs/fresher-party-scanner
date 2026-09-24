@@ -159,7 +159,7 @@ export async function sendAdminInviteEmail(params: {
           <a href="${params.setupUrl}" style="color:#60a5fa;text-decoration:underline;">${params.setupUrl}</a>
         </p>
         <p style="color:#64748b;font-size:12px;text-align:center;margin:0;">
-          This link is valid for 24 hours. Contact the Project Manager if you need a new link.
+          This link is valid for 15 minutes. Contact the Project Manager if you need a new link.
         </p>
       </div>
     `,

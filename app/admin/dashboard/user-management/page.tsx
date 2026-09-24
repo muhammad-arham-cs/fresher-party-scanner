@@ -305,7 +305,7 @@ export default function UserManagementPage() {
 
                 <div className="p-3.5 rounded-xl bg-surface-800 border border-surface-700 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Setup Link (24-Hour Expiry)</span>
+                    <span className="text-xs font-semibold text-surface-400 uppercase tracking-wide">Setup Link (15-Minute Expiry)</span>
 
                     <button
                       onClick={() => {

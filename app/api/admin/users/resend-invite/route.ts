@@ -31,9 +31,9 @@ export async function POST(req: NextRequest) {
 
     const isReactivating = !user.is_active;
 
-    // Refresh token with 24-hour expiration and ensure account is active
+    // Refresh token with 15-minute expiration and ensure account is active
     const setupToken = uuidv4();
-    const setupExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const setupExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
 
     const { error: updateErr } = await supabase
       .from('admin_users')

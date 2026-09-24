@@ -60,9 +60,9 @@ export async function POST(req: NextRequest) {
       }, { status: 409 });
     }
 
-    // Generate password setup token with 24-hour expiration
+    // Generate password setup token with 15-minute expiration
     const setupToken = uuidv4();
-    const setupExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+    const setupExpires = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
     const tempHash = await hashPassword(uuidv4());
     const baseUrl = getBaseUrl(req);
     const setupUrl = `${baseUrl}/admin/onboarding?token=${setupToken}`;

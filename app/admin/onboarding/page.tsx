@@ -140,7 +140,7 @@ function OnboardingContent() {
               emailParam ? `Account setup for ${emailParam}` : 'Fresher Party 2026 Admin Portal'
             )}
           </p>
-          <p className="text-xs text-amber-400 mt-1">⚠️ This onboarding link expires in 24 hours</p>
+          <p className="text-xs text-amber-400 mt-1">⚠️ This onboarding link expires in 15 minutes</p>
         </div>
         <Card>
           <form onSubmit={handleSubmit} className="space-y-5">

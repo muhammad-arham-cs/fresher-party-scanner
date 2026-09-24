@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase';
 
 const SALT_ROUNDS = 10;
 const ADMIN_JWT_EXPIRATION = '1h'; // 1 hour session for all admin roles
-const SCANNER_JWT_EXPIRATION = '8h'; // 8 hours session for scanner volunteers
+const SCANNER_JWT_EXPIRATION = '1h'; // 1 hour session for scanner volunteers
 
 export interface AdminSession {
   id: string;
@@ -175,7 +175,7 @@ export async function setAuthCookie(token: string) {
 }
 
 /**
- * Set the scanner volunteer auth cookie (8 hours expiration).
+ * Set the scanner volunteer auth cookie (1 hour expiration).
  */
 export async function setScannerCookie(token: string) {
   const cookieStore = await cookies();
@@ -183,7 +183,7 @@ export async function setScannerCookie(token: string) {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 60 * 60 * 8, // 8 hours
+    maxAge: 60 * 60, // 1 hour
     path: '/',
   });
 }
