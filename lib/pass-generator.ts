@@ -95,8 +95,14 @@ export async function generatePassPDF(student: PassStudent): Promise<string> {
   doc.setTextColor(20, 25, 40);
   doc.text(ticketId, centerX, 53.4, { align: 'center' });
 
-  // 4. QR CODE (centered inside white box)
-  doc.addImage(qrDataUrl, 'PNG', 151.0, 58.5, 29.0, 29.0);
+  // 4. QR CODE (precisely centered inside the white dashed-border box)
+  // Measured box bounds in template: x: [148.2 .. 177.7], y: [57.0 .. 85.2] -> Center: (163.0, 71.1)
+  const qrSize = 27.0;
+  const qrCenterX = 163.0;
+  const qrCenterY = 71.1;
+  const qrX = qrCenterX - (qrSize / 2); // 149.5 mm
+  const qrY = qrCenterY - (qrSize / 2); // 57.6 mm
+  doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
 
   return doc.output('datauristring');
 }
