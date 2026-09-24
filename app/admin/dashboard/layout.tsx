@@ -1,5 +1,5 @@
 import React from 'react';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, getLiveAdminPermissions } from '@/lib/admin-auth';
 import { redirect } from 'next/navigation';
 import DashboardShell from '@/components/admin/dashboard-shell';
 
@@ -13,5 +13,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect('/admin/login');
   }
 
-  return <DashboardShell admin={session}>{children}</DashboardShell>;
+  const livePerms = await getLiveAdminPermissions(session.id);
+  const adminWithPerms = { ...session, custom_permissions: livePerms };
+
+  return <DashboardShell admin={adminWithPerms}>{children}</DashboardShell>;
 }

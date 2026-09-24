@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession, hasPermission } from '@/lib/admin-auth';
+import { checkAdminSession, hasPermission, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { logAuditEvent } from '@/lib/audit';
 
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    let query = supabase.from('approved_passes').select('id, name, roll_no, email, pass_status, pass_sent_at, section');
+    let query = supabase.from('approved_passes').select('id, name, roll_no, email, pass_status, pass_sent_at, section, created_by_pm');
     if (pass_id) {
       query = query.eq('id', pass_id);
     } else if (roll_no) {
@@ -42,6 +42,11 @@ export async function POST(req: NextRequest) {
 
     if (fetchErr || !pass) {
       console.error('Pass lookup failed in revoke route:', fetchErr);
+      return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
+    }
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+    if (!isPM && pass.created_by_pm) {
       return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
     }
 

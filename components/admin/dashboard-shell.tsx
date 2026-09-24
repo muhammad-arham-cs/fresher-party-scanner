@@ -95,6 +95,16 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: 'Permission Matrix',
+    href: '/admin/dashboard/permission-management',
+    roles: ['PROJECT_MANAGER'],
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+      </svg>
+    ),
+  },
 ];
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
@@ -120,7 +130,36 @@ export default function DashboardShell({
     router.replace('/admin/login');
   };
 
-  const accessibleNav = NAV_ITEMS.filter((item) => item.roles.includes(admin.role));
+  const isPM = admin.role === 'PROJECT_MANAGER' || 
+    admin.email?.toLowerCase() === 'muhammadarham979@gmail.com' || 
+    admin.email?.toLowerCase() === 'arham.personal28@gmail.com';
+
+  const accessibleNav = NAV_ITEMS.filter((item) => {
+    // Project Manager has full access to all navigation items
+    if (isPM) return true;
+
+    // PM exclusive items
+    if (item.href === '/admin/dashboard/permission-management') {
+      return false;
+    }
+
+    // 4 Restricted features check dynamic per-user custom_permissions
+    if (item.href === '/admin/dashboard/audit-logs') {
+      return Boolean(admin.custom_permissions?.audit_logs);
+    }
+    if (item.href === '/admin/dashboard/scanner-logs') {
+      return Boolean(admin.custom_permissions?.scanner_logs);
+    }
+    if (item.href === '/admin/dashboard/manual-entry') {
+      return Boolean(admin.custom_permissions?.manual_entry);
+    }
+    if (item.href === '/admin/dashboard/user-management') {
+      return Boolean(admin.custom_permissions?.user_management);
+    }
+
+    // Other items check standard role assignment
+    return item.roles.includes(admin.role);
+  });
 
   return (
     <div className="min-h-screen flex bg-surface-950 text-white">

@@ -21,6 +21,7 @@ interface Pass {
   pass_sent_at: string | null;
   entry_created_by: string;
   created_at: string;
+  created_by_pm?: boolean;
 }
 
 const STATUS_LABELS: Record<string, { label: string; class: string }> = {
@@ -39,6 +40,7 @@ export default function PassManagementPage() {
   const [passes, setPasses] = useState<Pass[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [isPM, setIsPM] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -54,7 +56,11 @@ export default function PassManagementPage() {
       const params = new URLSearchParams({ status: statusFilter, search, limit: '100' });
       const res = await fetch(`/api/admin/passes?${params}`);
       const data = await res.json();
-      if (data.success) { setPasses(data.passes); setTotal(data.total || data.passes.length); }
+      if (data.success) {
+        setPasses(data.passes);
+        setTotal(data.total || data.passes.length);
+        if (data.is_pm !== undefined) setIsPM(Boolean(data.is_pm));
+      }
     } catch {/* ignore */} finally { setLoading(false); }
   }, [statusFilter, search]);
 
@@ -266,7 +272,16 @@ export default function PassManagementPage() {
                     <tr key={pass.id}>
                       <td className="font-mono text-emerald-400 font-bold text-xs">{ticketId}</td>
                       <td className="font-mono text-primary-400 text-xs">{pass.roll_no}</td>
-                      <td className="font-semibold text-white">{pass.name}</td>
+                      <td className="font-semibold text-white">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span>{pass.name}</span>
+                          {isPM && pass.created_by_pm && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-400/20 text-amber-300 border border-amber-400/30 font-mono tracking-tight" title="Ghost pass created by Super Admin (hidden from other roles)">
+                              🛡️ Stealth
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="text-surface-300 text-xs">{pass.department}</td>
                       <td className="text-surface-400 text-xs">{pass.email || <span className="text-danger-400">No email</span>}</td>
                       <td><span className={`badge ${statusInfo.class}`}>{statusInfo.label}</span></td>

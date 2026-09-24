@@ -7,12 +7,20 @@ const SALT_ROUNDS = 10;
 const ADMIN_JWT_EXPIRATION = '1h'; // 1 hour session for all admin roles
 const SCANNER_JWT_EXPIRATION = '1h'; // 1 hour session for scanner volunteers
 
+export interface CustomPermissions {
+  audit_logs?: boolean;
+  scanner_logs?: boolean;
+  manual_entry?: boolean;
+  user_management?: boolean;
+}
+
 export interface AdminSession {
   id: string;
   email: string;
   name: string;
   role: string; // 'PROJECT_MANAGER' | 'ENTRY_MANAGER' | 'ENTRY_SUPERVISOR' | 'SCANNER'
   is_active: boolean;
+  custom_permissions?: CustomPermissions;
 }
 
 function getJwtSecret(): Uint8Array {
@@ -157,7 +165,35 @@ export async function authenticateAdmin(email: string, password: string): Promis
     name: admin.name,
     role: admin.role,
     is_active: admin.is_active,
+    custom_permissions: admin.custom_permissions || {
+      audit_logs: false,
+      scanner_logs: false,
+      manual_entry: false,
+      user_management: false,
+    },
   };
+}
+
+/**
+ * Fetch fresh real-time permissions for a user from database.
+ */
+export async function getLiveAdminPermissions(userId: string): Promise<CustomPermissions> {
+  try {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from('admin_users')
+      .select('custom_permissions, role, email')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (!data) return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+    if (data.role === 'PROJECT_MANAGER' || isPMEmail(data.email)) {
+      return { audit_logs: true, scanner_logs: true, manual_entry: true, user_management: true };
+    }
+    return data.custom_permissions || { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+  } catch {
+    return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+  }
 }
 
 /**
@@ -198,13 +234,41 @@ export async function clearAuthCookie() {
 }
 
 /**
- * Check if an admin role has a specific permission.
+ * Check if an admin role or session has a specific permission.
+ * - PROJECT_MANAGER has full access to all features.
+ * - 4 features ('audit_logs', 'scanner_logs', 'manual_entry', 'user_management') are restricted:
+ *   They default to OFF for all non-PM users and require dynamic per-user custom_permissions to be granted by PM.
+ * - Standard features ('excel_upload', 'pass_management', 'approve_entries', 'email_queue', 'gate_checkin')
+ *   are accessible by role.
  */
-export function hasPermission(role: string, permission: string): boolean {
+export function hasPermission(
+  roleOrSession: string | AdminSession,
+  permission: string
+): boolean {
+  let role: string;
+  let customPerms: CustomPermissions | undefined;
+
+  if (typeof roleOrSession === 'object' && roleOrSession !== null) {
+    role = roleOrSession.role;
+    customPerms = roleOrSession.custom_permissions;
+    if (isPMEmail(roleOrSession.email)) return true;
+  } else {
+    role = roleOrSession;
+  }
+
+  if (role === 'PROJECT_MANAGER') return true;
+
+  // 4 Restricted features that require explicit dynamic per-user permission
+  const restrictedPermissions = ['audit_logs', 'scanner_logs', 'manual_entry', 'user_management'];
+  if (restrictedPermissions.includes(permission)) {
+    return Boolean(customPerms?.[permission as keyof CustomPermissions]);
+  }
+
+  // Standard non-restricted permissions by role
   const permissions: Record<string, string[]> = {
     PROJECT_MANAGER: ['all'],
-    ENTRY_MANAGER: ['excel_upload', 'manual_entry', 'pass_management', 'approve_entries', 'email_queue', 'audit_logs', 'gate_checkin'],
-    ENTRY_SUPERVISOR: ['excel_upload', 'manual_entry', 'pass_management', 'approve_entries', 'scanner_logs', 'email_queue', 'audit_logs', 'gate_checkin'],
+    ENTRY_MANAGER: ['excel_upload', 'pass_management', 'approve_entries', 'email_queue', 'gate_checkin'],
+    ENTRY_SUPERVISOR: ['excel_upload', 'pass_management', 'approve_entries', 'email_queue', 'gate_checkin'],
     SCANNER: ['scan', 'gate_checkin'],
   };
 

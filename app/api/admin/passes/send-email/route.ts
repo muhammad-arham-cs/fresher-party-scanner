@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { checkEmailQuota, incrementEmailQuota } from '@/lib/email-quota';
 import { recordDirectEmailSent } from '@/lib/email-queue';
@@ -21,10 +21,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Pass ID or Roll Number is required' }, { status: 400 });
     }
 
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
     const supabase = createAdminClient();
 
     // Query the pass
     let query = supabase.from('approved_passes').select('*');
+    if (!isPM) {
+      query = query.or('created_by_pm.is.null,created_by_pm.eq.false');
+    }
     if (pass_id) {
       query = query.eq('id', pass_id);
     } else if (roll_no) {

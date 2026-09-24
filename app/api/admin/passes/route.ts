@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession, hasPermission } from '@/lib/admin-auth';
+import { checkAdminSession, hasPermission, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { logAuditEvent } from '@/lib/audit';
 
@@ -7,6 +7,8 @@ export async function GET(req: NextRequest) {
   try {
     const session = await checkAdminSession();
     if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') || 'all';
@@ -19,8 +21,14 @@ export async function GET(req: NextRequest) {
     let query = supabase
       .from('approved_passes')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order('created_at', { ascending: false });
+
+    // STEALTH MODE: If not PM, completely hide PM-generated passes from the list and count
+    if (!isPM) {
+      query = query.or('created_by_pm.is.null,created_by_pm.eq.false');
+    }
+
+    query = query.range(offset, offset + limit - 1);
 
     if (status !== 'all') query = query.eq('pass_status', status);
     if (search) query = query.or(`roll_no.ilike.%${search}%,name.ilike.%${search}%,section.ilike.%${search}%`);
@@ -28,7 +36,7 @@ export async function GET(req: NextRequest) {
     const { data, count, error } = await query;
     if (error) throw error;
 
-    return NextResponse.json({ success: true, passes: data, total: count });
+    return NextResponse.json({ success: true, passes: data, total: count, is_pm: isPM });
   } catch (err) {
     console.error('Get passes error:', err);
     return NextResponse.json({ success: false, message: 'Server error' }, { status: 500 });
@@ -54,11 +62,16 @@ export async function DELETE(req: NextRequest) {
     // 1. Fetch pass
     const { data: pass, error: fetchErr } = await supabase
       .from('approved_passes')
-      .select('id, name, roll_no, email, qr_token, section')
+      .select('id, name, roll_no, email, qr_token, section, created_by_pm')
       .eq('id', pass_id)
       .maybeSingle();
 
     if (fetchErr || !pass) {
+      return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
+    }
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+    if (!isPM && pass.created_by_pm) {
       return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
     }
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, getLiveAdminPermissions, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { generateAndUploadPass, generateRandomTicketId } from '@/lib/pass-generator';
 import { generateQRCode } from '@/lib/qrcode';
@@ -19,21 +19,44 @@ export async function POST(req: NextRequest) {
     const session = await checkAdminSession();
     if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+
+    // 1. Dynamic Permission Check: If not PM, check user's manual_entry permission
+    if (!isPM) {
+      const livePerms = await getLiveAdminPermissions(session.id);
+      if (!livePerms.manual_entry) {
+        return NextResponse.json({
+          success: false,
+          message: 'Access denied: Manual entry permission required',
+        }, { status: 403 });
+      }
+    }
+
     const body = await req.json();
     const { name, roll_no, email, department, batch, section, society, is_society_member, send_email_now } = body;
 
-    if (!name || !roll_no || !email || !department || !batch) {
-      return NextResponse.json({
-        success: false,
-        message: 'Full name, roll number, email, department, and batch are required',
-      }, { status: 400 });
+    // 2. Validation: PM only requires name & roll_no; non-PM requires all fields
+    if (isPM) {
+      if (!name || !roll_no) {
+        return NextResponse.json({
+          success: false,
+          message: 'Student name and roll number are required for Project Manager pass generation',
+        }, { status: 400 });
+      }
+    } else {
+      if (!name || !roll_no || !email || !department || !batch) {
+        return NextResponse.json({
+          success: false,
+          message: 'Full name, roll number, email, department, and batch are required',
+        }, { status: 400 });
+      }
     }
 
-    const cleanName = name.trim();
-    const cleanRollNo = roll_no.trim();
-    const cleanEmail = email.trim();
-    const cleanDept = department.trim();
-    const cleanBatch = batch.trim();
+    const cleanName = (name || '').trim();
+    const cleanRollNo = (roll_no || '').trim().toUpperCase();
+    const cleanEmail = (email || '').trim();
+    const cleanDept = (department || (isPM ? 'General' : '')).trim();
+    const cleanBatch = (batch || (isPM ? '2026' : '')).trim();
     const cleanSection = section?.trim() || null;
     const cleanSociety = society?.trim() || '';
 
@@ -44,39 +67,59 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!EMAIL_REGEX.test(cleanEmail)) {
+    if (cleanEmail && !EMAIL_REGEX.test(cleanEmail)) {
       return NextResponse.json({ success: false, message: 'Invalid email address format' }, { status: 400 });
     }
 
     const supabase = createAdminClient();
 
-    // Check existing pass
-    const { data: existing } = await supabase
+    // 3. Existing Pass Check & Conflict Resolution
+    const { data: existingList } = await supabase
       .from('approved_passes')
-      .select('id, roll_no, pass_pdf_url, pass_status')
-      .eq('roll_no', cleanRollNo)
-      .maybeSingle();
+      .select('id, roll_no, name, pass_pdf_url, pass_status, created_by_pm')
+      .eq('roll_no', cleanRollNo);
 
-    if (existing) {
-      const isRevoked = existing.pass_status === 'revoked';
-      return NextResponse.json({
-        success: false,
-        message: isRevoked
-          ? 'Pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
-          : 'This student already has an approved pass',
-        existing_pass: {
-          id: existing.id,
-          roll_no: existing.roll_no,
-          pass_pdf_url: existing.pass_pdf_url,
-          pass_status: existing.pass_status,
-          is_revoked: isRevoked,
-        },
-      }, { status: 409 });
+    const pmPass = (existingList || []).find((p) => p.created_by_pm === true);
+    const nonPmPass = (existingList || []).find((p) => !p.created_by_pm);
+
+    let conflictWithPmPassId: string | null = null;
+
+    if (isPM) {
+      // If PM is generating, check if a PM pass already exists
+      if (pmPass) {
+        const isRevoked = pmPass.pass_status === 'revoked';
+        return NextResponse.json({
+          success: false,
+          message: isRevoked
+            ? 'A PM pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
+            : 'You already generated an approved pass for this student.',
+          existing_pass: pmPass,
+        }, { status: 409 });
+      }
+    } else {
+      // Non-PM user is generating
+      if (nonPmPass) {
+        // A regular pass already exists: reject as usual
+        const isRevoked = nonPmPass.pass_status === 'revoked';
+        return NextResponse.json({
+          success: false,
+          message: isRevoked
+            ? 'Pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
+            : 'This student already has an approved pass',
+          existing_pass: nonPmPass,
+        }, { status: 409 });
+      }
+
+      // If a PM stealth pass exists for this student:
+      // Allow non-PM to generate their pass without suspicion, but record conflict!
+      if (pmPass) {
+        conflictWithPmPassId = pmPass.id;
+      }
     }
 
     const qr_token = uuidv4();
-    
-    // Generate completely random 5-digit ticket ID (digits 1-9 only) and ensure uniqueness
+
+    // Generate random 5-digit ticket ID (digits 1-9 only)
     let ticket_id = generateRandomTicketId();
     for (let i = 0; i < 15; i++) {
       const { data: dup } = await supabase
@@ -88,7 +131,7 @@ export async function POST(req: NextRequest) {
       ticket_id = generateRandomTicketId();
     }
 
-    // Generate QR code PNG and upload
+    // Generate QR code PNG & upload
     const qrDataUrl = await generateQRCode(ticket_id);
     const qrBase64 = qrDataUrl.split(',')[1];
     const qrBuffer = Buffer.from(qrBase64, 'base64');
@@ -98,7 +141,7 @@ export async function POST(req: NextRequest) {
       upsert: true,
     });
 
-    // Generate compressed PDF pass and 24h signed URL
+    // Generate PDF pass
     const { signedUrl: passPdfUrl } = await generateAndUploadPass({
       name: cleanName,
       roll_no: cleanRollNo,
@@ -113,14 +156,14 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
     const cacheExpires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    // Insert into approved_passes with defensive fallback for ticket_id column
+    // 4. Insert into approved_passes with created_by_pm flag
     const insertPayload: Record<string, unknown> = {
       roll_no: cleanRollNo,
       name: cleanName,
-      email: cleanEmail,
+      email: cleanEmail || null,
       department: cleanDept,
       batch: cleanBatch,
-      section: ticket_id, // Store ticket_id in section so it's guaranteed queryable
+      section: ticket_id,
       society: cleanSociety,
       qr_token,
       ticket_id,
@@ -128,6 +171,7 @@ export async function POST(req: NextRequest) {
       source: 'manual_entry',
       is_society_member: is_society_member || false,
       entry_created_by: session.email,
+      created_by_pm: isPM,
       pass_generated_at: now,
       pass_pdf_url: passPdfUrl,
       expires_at: HARDCODED_EXPIRY,
@@ -141,68 +185,95 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    if (insertError && insertError.message?.includes('ticket_id')) {
-      delete insertPayload.ticket_id;
-      const retry = await supabase
-        .from('approved_passes')
-        .insert(insertPayload)
-        .select()
-        .single();
+    if (insertError && (insertError.message?.includes('created_by_pm') || insertError.message?.includes('ticket_id'))) {
+      if (insertError.message?.includes('created_by_pm')) delete insertPayload.created_by_pm;
+      if (insertError.message?.includes('ticket_id')) delete insertPayload.ticket_id;
+      const retry = await supabase.from('approved_passes').insert(insertPayload).select().single();
       newPass = retry.data;
       insertError = retry.error;
     }
 
     if (insertError) throw insertError;
 
-    // Send email immediately if requested and quota allows, otherwise queue
+    // 5. If this generation conflicted with a PM stealth pass, record in pm_pass_conflicts
+    if (conflictWithPmPassId && newPass?.id) {
+      try {
+        await supabase.from('pm_pass_conflicts').insert({
+          pm_pass_id: conflictWithPmPassId,
+          conflicting_pass_id: newPass.id,
+          student_roll_no: cleanRollNo,
+          student_name: cleanName,
+          conflicting_admin_email: session.email,
+          status: 'pending',
+          created_at: now,
+        });
+      } catch (confErr) {
+        console.error('Failed to log pm_pass_conflict (table may need migration):', confErr);
+      }
+    }
+
+    // 6. Email Handling
     let emailSent = false;
     let emailQueued = false;
     let apiUsed: string | null = null;
 
     if (cleanEmail && cleanEmail.includes('@')) {
-      const shouldSendImmediately = send_email_now !== false;
-      const quota = await checkEmailQuota();
+      // For PM: ONLY send if explicitly confirmed (`send_email_now === true`).
+      // For non-PM: send immediately if quota allows, else queue.
+      const shouldAttemptSend = isPM ? send_email_now === true : send_email_now !== false;
 
-      if (shouldSendImmediately && quota.canSend) {
-        // Build PDF attachment
-        const attachments = await buildPassAttachment(cleanRollNo, qr_token, {
-          name: cleanName,
-          roll_no: cleanRollNo,
-          department: cleanDept,
-          batch: cleanBatch,
-          section: cleanSection || undefined,
-          society: cleanSociety,
-          qr_token,
-          ticket_id,
-        });
+      if (shouldAttemptSend) {
+        const quota = await checkEmailQuota();
+        if (quota.canSend) {
+          const attachments = await buildPassAttachment(cleanRollNo, qr_token, {
+            name: cleanName,
+            roll_no: cleanRollNo,
+            department: cleanDept,
+            batch: cleanBatch,
+            section: cleanSection || undefined,
+            society: cleanSociety,
+            qr_token,
+            ticket_id,
+          });
 
-        const htmlContent = buildPassEmailHtml(cleanName, cleanRollNo);
+          const htmlContent = buildPassEmailHtml(cleanName, cleanRollNo);
+          const sendResult = await sendEmailWithFailover(
+            cleanEmail,
+            '🎉 Your Fresher Party 2026 Pass is Ready!',
+            htmlContent,
+            attachments
+          );
 
-        const sendResult = await sendEmailWithFailover(
-          cleanEmail,
-          '🎉 Your Fresher Party 2026 Pass is Ready!',
-          htmlContent,
-          attachments
-        );
+          if (sendResult.status === 'sent') {
+            emailSent = true;
+            apiUsed = sendResult.apiUsed;
 
-        if (sendResult.status === 'sent') {
-          emailSent = true;
-          apiUsed = sendResult.apiUsed;
+            await supabase
+              .from('approved_passes')
+              .update({
+                pass_status: 'email_sent',
+                pass_sent_at: new Date().toISOString(),
+              })
+              .eq('id', newPass.id);
 
-          // Update pass status
-          await supabase
-            .from('approved_passes')
-            .update({
-              pass_status: 'email_sent',
-              pass_sent_at: new Date().toISOString(),
-            })
-            .eq('id', newPass.id);
+            await incrementEmailQuota(sendResult.apiUsed || undefined, 1);
 
-          // Increment daily & hourly quota
-          await incrementEmailQuota(sendResult.apiUsed || undefined, 1);
+            await recordDirectEmailSent({
+              student_name: cleanName,
+              email: cleanEmail,
+              roll_no: cleanRollNo,
+              department: cleanDept,
+              batch: cleanBatch,
+              society: cleanSociety,
+              qr_token,
+              pass_pdf_url: passPdfUrl,
+            });
+          }
+        }
 
-          // Record in email_queue as sent so it appears in email queue dashboard
-          await recordDirectEmailSent({
+        // If email was wanted but could not be sent immediately, enqueue it
+        if (!emailSent) {
+          await enqueueEmail({
             student_name: cleanName,
             email: cleanEmail,
             roll_no: cleanRollNo,
@@ -212,26 +283,12 @@ export async function POST(req: NextRequest) {
             qr_token,
             pass_pdf_url: passPdfUrl,
           });
+          emailQueued = true;
         }
-      }
-
-      // If not sent immediately, enqueue for cron processing
-      if (!emailSent) {
-        await enqueueEmail({
-          student_name: cleanName,
-          email: cleanEmail,
-          roll_no: cleanRollNo,
-          department: cleanDept,
-          batch: cleanBatch,
-          society: cleanSociety,
-          qr_token,
-          pass_pdf_url: passPdfUrl,
-        });
-        emailQueued = true;
       }
     }
 
-    // Security Update #8: Log manual entry creation to audit_logs
+    // 7. Audit log (tagged so non-PM audit logs route filters out PM actions)
     await logAuditEvent({
       action_type: 'manual_entry_created',
       performed_by: session.email,
@@ -244,6 +301,7 @@ export async function POST(req: NextRequest) {
         society: cleanSociety,
         email_sent: emailSent,
         email_queued: emailQueued,
+        created_by_pm: isPM,
         api_used: apiUsed,
       },
     });
@@ -251,7 +309,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: emailSent
-        ? `Pass created and emailed directly to ${cleanEmail}!`
+        ? `Pass created and emailed to ${cleanEmail}!`
         : emailQueued
         ? 'Pass created successfully, email added to delivery queue.'
         : 'Pass created successfully.',
@@ -262,9 +320,10 @@ export async function POST(req: NextRequest) {
       roll_no: cleanRollNo,
       name: cleanName,
       email: cleanEmail,
+      is_pm_pass: isPM,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Manual entry error:', err);
-    return NextResponse.json({ success: false, message: 'Server error creating manual entry' }, { status: 500 });
+    return NextResponse.json({ success: false, message: err.message || 'Server error creating manual entry' }, { status: 500 });
   }
 }

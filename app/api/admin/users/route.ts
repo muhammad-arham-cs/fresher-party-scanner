@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession, hashPassword, getBaseUrl, isPMEmail } from '@/lib/admin-auth';
+import { checkAdminSession, hashPassword, getBaseUrl, isPMEmail, getLiveAdminPermissions } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { sendAdminInviteEmail } from '@/lib/brevo';
 import { logAuditEvent } from '@/lib/audit';
 import { v4 as uuidv4 } from 'uuid';
 
-
 export async function GET() {
   try {
     const session = await checkAdminSession();
-    if (!session || session.role !== 'PROJECT_MANAGER') {
-      return NextResponse.json({ success: false, message: 'Access denied' }, { status: 403 });
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+    let hasUserMgmt = isPM;
+    if (!hasUserMgmt) {
+      const livePerms = await getLiveAdminPermissions(session.id);
+      hasUserMgmt = Boolean(livePerms.user_management);
+    }
+    if (!hasUserMgmt) {
+      return NextResponse.json({ success: false, message: 'Access denied: User management permission required' }, { status: 403 });
     }
 
     const supabase = createAdminClient();
@@ -30,13 +37,26 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await checkAdminSession();
-    if (!session || session.role !== 'PROJECT_MANAGER') {
-      return NextResponse.json({ success: false, message: 'Access denied' }, { status: 403 });
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+    let hasUserMgmt = isPM;
+    if (!hasUserMgmt) {
+      const livePerms = await getLiveAdminPermissions(session.id);
+      hasUserMgmt = Boolean(livePerms.user_management);
+    }
+    if (!hasUserMgmt) {
+      return NextResponse.json({ success: false, message: 'Access denied: User management permission required' }, { status: 403 });
     }
 
     const { email, name, role } = await req.json();
     if (!email || !name || !role) {
       return NextResponse.json({ success: false, message: 'Email, name, and role are required' }, { status: 400 });
+    }
+
+    // Only PM can invite another PM
+    if (role === 'PROJECT_MANAGER' && !isPM) {
+      return NextResponse.json({ success: false, message: 'Only a Project Manager can invite Project Managers' }, { status: 403 });
     }
 
     const validRoles = ['ENTRY_MANAGER', 'ENTRY_SUPERVISOR', 'PROJECT_MANAGER'];
@@ -147,8 +167,16 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await checkAdminSession();
-    if (!session || session.role !== 'PROJECT_MANAGER') {
-      return NextResponse.json({ success: false, message: 'Access denied' }, { status: 403 });
+    if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
+
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
+    let hasUserMgmt = isPM;
+    if (!hasUserMgmt) {
+      const livePerms = await getLiveAdminPermissions(session.id);
+      hasUserMgmt = Boolean(livePerms.user_management);
+    }
+    if (!hasUserMgmt) {
+      return NextResponse.json({ success: false, message: 'Access denied: User management permission required' }, { status: 403 });
     }
 
     const { user_id } = await req.json();

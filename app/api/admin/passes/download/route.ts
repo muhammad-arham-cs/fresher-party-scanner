@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, isPMEmail } from '@/lib/admin-auth';
 import { getPassDownloadSignedUrl } from '@/lib/pass-generator';
 import { logAuditEvent } from '@/lib/audit';
 import { createAdminClient } from '@/lib/supabase';
@@ -16,12 +16,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Roll number is required' }, { status: 400 });
     }
 
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
     const supabase = createAdminClient();
-    const { data: pass } = await supabase
+    let query = supabase
       .from('approved_passes')
-      .select('roll_no, name, pass_status')
-      .eq('roll_no', rollNo.trim())
-      .maybeSingle();
+      .select('roll_no, name, pass_status, created_by_pm')
+      .eq('roll_no', rollNo.trim());
+
+    if (!isPM) {
+      query = query.or('created_by_pm.is.null,created_by_pm.eq.false');
+    }
+
+    const { data: pass } = await query.maybeSingle();
 
     if (!pass) {
       return NextResponse.json({ success: false, message: 'Pass not found or has been permanently deleted' }, { status: 404 });

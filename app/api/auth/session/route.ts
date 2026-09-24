@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, getLiveAdminPermissions } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -19,8 +19,13 @@ export async function GET() {
       }
     );
   }
+
+  // Fetch real-time permissions from database so changes apply instantly
+  const livePerms = await getLiveAdminPermissions(session.id);
+  const adminWithPerms = { ...session, custom_permissions: livePerms };
+
   return NextResponse.json(
-    { success: true, admin: session },
+    { success: true, admin: adminWithPerms },
     {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',

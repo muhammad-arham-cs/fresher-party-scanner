@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -16,11 +16,22 @@ interface ExistingPass {
   is_revoked?: boolean;
 }
 
+interface ConflictItem {
+  id: string;
+  student_roll_no: string;
+  student_name?: string;
+  conflicting_admin_email: string;
+  created_at: string;
+  pm_pass?: any;
+  conflicting_pass?: any;
+}
+
 export default function ManualEntryPage() {
   const [form, setForm] = useState({
     name: '', roll_no: '', email: '', department: '', batch: '', section: '', society: '', is_society_member: false,
   });
-  const [sendEmailDirectly, setSendEmailDirectly] = useState(true);
+  const [isPM, setIsPM] = useState(false);
+  const [sendEmailDirectly, setSendEmailDirectly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
@@ -31,8 +42,70 @@ export default function ManualEntryPage() {
     roll_no: string;
     email: string;
     name: string;
+    is_pm_pass?: boolean;
   } | null>(null);
   const [existingPass, setExistingPass] = useState<ExistingPass | null>(null);
+
+  // Conflicts State
+  const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
+  const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
+
+  // Check Session on mount to customize PM experience
+  useEffect(() => {
+    async function loadSession() {
+      try {
+        const res = await fetch('/api/auth/session');
+        const data = await res.json();
+        if (data.success && data.admin) {
+          const pm = data.admin.role === 'PROJECT_MANAGER' || 
+            ['muhammadarham979@gmail.com', 'arham.personal28@gmail.com'].includes(data.admin.email?.toLowerCase());
+          setIsPM(pm);
+          // If PM: default email sending to false (ask first); if not PM, default true
+          setSendEmailDirectly(!pm);
+
+          if (pm) {
+            fetchConflicts();
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    loadSession();
+  }, []);
+
+  const fetchConflicts = async () => {
+    try {
+      const res = await fetch('/api/admin/conflicts');
+      const data = await res.json();
+      if (data.success) {
+        setConflicts(data.conflicts || []);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleResolveConflict = async (conflictId: string, resolution: 'merge' | 'keep_both' | 'dismiss') => {
+    setResolvingConflictId(conflictId);
+    try {
+      const res = await fetch('/api/admin/conflicts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conflict_id: conflictId, resolution }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setConflicts((prev) => prev.filter((c) => c.id !== conflictId));
+      } else {
+        alert(data.message || 'Failed to resolve conflict');
+      }
+    } catch {
+      alert('Error connecting to server to resolve conflict');
+    } finally {
+      setResolvingConflictId(null);
+    }
+  };
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
@@ -43,19 +116,32 @@ export default function ManualEntryPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.roll_no.trim() || !form.email.trim() || !form.department.trim() || !form.batch.trim()) {
-      setError('Full Name, Roll Number, Email, Department, and Batch are required.');
-      return;
+
+    if (isPM) {
+      if (!form.name.trim() || !form.roll_no.trim()) {
+        setError('Student Name and Roll Number are required.');
+        return;
+      }
+    } else {
+      if (!form.name.trim() || !form.roll_no.trim() || !form.email.trim() || !form.department.trim() || !form.batch.trim()) {
+        setError('Full Name, Roll Number, Email, Department, and Batch are required.');
+        return;
+      }
     }
+
     setLoading(true);
     setError('');
     setEmailFeedback(null);
     setExistingPass(null);
+
     try {
       const res = await fetch('/api/admin/manual-entry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, send_email_now: sendEmailDirectly }),
+        body: JSON.stringify({
+          ...form,
+          send_email_now: form.email.trim() ? sendEmailDirectly : false,
+        }),
       });
       const data = await res.json();
       if (res.status === 409) {
@@ -69,6 +155,7 @@ export default function ManualEntryPage() {
           roll_no: data.roll_no || form.roll_no,
           email: data.email || form.email,
           name: data.name || form.name,
+          is_pm_pass: data.is_pm_pass,
         });
         setForm({ name: '', roll_no: '', email: '', department: '', batch: '', section: '', society: '', is_society_member: false });
       } else {
@@ -95,7 +182,7 @@ export default function ManualEntryPage() {
       const data = await res.json();
       if (data.success) {
         setSuccess((prev) => prev ? { ...prev, email_sent: true } : null);
-        setEmailFeedback(`✅ Pass emailed successfully to ${success.email}! Logged and added +1 to daily email quota.`);
+        setEmailFeedback(`✅ Pass emailed successfully to ${success.email}! Logged and recorded in quota.`);
       } else {
         setError(data.message || 'Failed to send pass email.');
       }
@@ -197,9 +284,87 @@ export default function ManualEntryPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {/* ─── PM Conflict Alerts Section (Only for PM) ─── */}
+      {isPM && conflicts.length > 0 && (
+        <div className="p-5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 shadow-xl space-y-3 animate-slide-down">
+          <div className="flex items-center gap-2.5">
+            <span className="text-2xl animate-bounce">⚠️</span>
+            <div>
+              <h3 className="font-black text-amber-300 text-sm tracking-tight">
+                Duplicate Pass Attempt Detected ({conflicts.length})
+              </h3>
+              <p className="text-xs text-amber-200/80">
+                Another admin generated a pass for a student you already created a stealth pass for. Choose how to handle this conflict below:
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2.5 pt-1">
+            {conflicts.map((conflict) => (
+              <div
+                key={conflict.id}
+                className="p-3.5 rounded-xl bg-surface-950/80 border border-amber-500/30 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              >
+                <div>
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <span>{conflict.student_name || 'Student'}</span>
+                    <span className="font-mono bg-surface-800 px-2 py-0.5 rounded text-[11px] text-amber-300 border border-amber-500/30">
+                      {conflict.student_roll_no}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-surface-400 mt-1">
+                    👤 Generated by: <strong className="text-surface-200">{conflict.conflicting_admin_email}</strong> ·{' '}
+                    <span>{new Date(conflict.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <button
+                    onClick={() => handleResolveConflict(conflict.id, 'merge')}
+                    disabled={resolvingConflictId === conflict.id}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow transition-all"
+                    title="Keep both passes valid at gate"
+                  >
+                    Merge Passes
+                  </button>
+                  <button
+                    onClick={() => handleResolveConflict(conflict.id, 'keep_both')}
+                    disabled={resolvingConflictId === conflict.id}
+                    className="px-3 py-1.5 rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-200 font-semibold text-[11px] border border-surface-700 transition-all"
+                    title="Keep both as separate tickets"
+                  >
+                    Keep Both
+                  </button>
+                  <button
+                    onClick={() => handleResolveConflict(conflict.id, 'dismiss')}
+                    disabled={resolvingConflictId === conflict.id}
+                    className="px-2.5 py-1.5 rounded-lg text-surface-400 hover:text-white text-[11px] transition-all"
+                    title="Dismiss alert"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
       <div>
-        <h1 className="section-title">Manual Entry</h1>
-        <p className="section-subtitle">Add a student directly — for late cash registrations or society members.</p>
+        <div className="flex items-center gap-2 mb-1">
+          <h1 className="section-title">Manual Pass Entry</h1>
+          {isPM && (
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              🛡️ PM Stealth Mode
+            </span>
+          )}
+        </div>
+        <p className="section-subtitle">
+          {isPM
+            ? 'Generate VIP or offline passes. PM passes are hidden from all other admins, logs, and queue metrics.'
+            : 'Add a student entry directly for late cash registrations or society members.'}
+        </p>
       </div>
 
       {success && (
@@ -207,14 +372,23 @@ export default function ManualEntryPage() {
           <div className="flex items-center gap-3">
             <span className="text-3xl">✅</span>
             <div className="flex-1">
-              <p className="text-success-400 font-bold text-lg">Pass Generated!</p>
-              <p className="text-surface-300 text-sm">
+              <div className="flex items-center gap-2">
+                <p className="text-success-400 font-bold text-lg">Pass Generated Successfully!</p>
+                {success.is_pm_pass && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-400 text-black font-extrabold uppercase">
+                    PM Stealth Pass
+                  </span>
+                )}
+              </div>
+              <p className="text-surface-300 text-sm mt-1">
                 Student: <span className="font-semibold text-white">{success.name}</span> ({success.roll_no})
               </p>
               <p className="text-surface-400 text-sm mt-0.5">
                 {success.email_sent
-                  ? `📧 Pass sent to ${success.email} and recorded in daily quota.`
-                  : `📥 Pass generated for ${success.email}. Send via Email, WhatsApp, or Download below.`}
+                  ? `📧 Pass sent directly to ${success.email}.`
+                  : success.email
+                  ? `📥 Pass generated for ${success.email} without auto-sending. Download or send below.`
+                  : `📥 Pass generated without email. Download PDF or send via WhatsApp below.`}
               </p>
               {emailFeedback && (
                 <p className="text-emerald-400 text-xs mt-2 font-medium bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20">
@@ -232,15 +406,17 @@ export default function ManualEntryPage() {
             >
               📄 Download PDF Pass
             </Button>
-            <Button
-              variant="secondary"
-              loading={sendingEmail}
-              onClick={handleSendManualPassEmail}
-              id="manual-email-send-btn"
-              className="border-primary-500/40 text-primary-300 hover:bg-primary-500/20"
-            >
-              📧 {success.email_sent ? 'Resend Pass via Email' : 'Send Pass via Email'}
-            </Button>
+            {success.email && (
+              <Button
+                variant="secondary"
+                loading={sendingEmail}
+                onClick={handleSendManualPassEmail}
+                id="manual-email-send-btn"
+                className="border-primary-500/40 text-primary-300 hover:bg-primary-500/20"
+              >
+                📧 {success.email_sent ? 'Resend Pass via Email' : 'Send Pass via Email'}
+              </Button>
+            )}
             <a
               href={`https://wa.me/?text=${encodeURIComponent(
                 `🎉 DUET Fresher Party 2026 Entry Pass\n\nName: ${success.name}\nRoll No: ${success.roll_no}\nDownload Pass: ${success.pass_pdf_url}`
@@ -252,7 +428,7 @@ export default function ManualEntryPage() {
                 📱 Send via WhatsApp
               </Button>
             </a>
-            <Button variant="ghost" onClick={reset}>Add Another</Button>
+            <Button variant="ghost" onClick={reset}>Add Another Pass</Button>
           </div>
         </div>
       )}
@@ -318,10 +494,10 @@ export default function ManualEntryPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Full Name *"
+              label="Student Name *"
               value={form.name}
               onChange={set('name')}
-              placeholder="Full Name"
+              placeholder="e.g. Ali Khan"
               required
               id="me-name"
             />
@@ -336,27 +512,31 @@ export default function ManualEntryPage() {
           </div>
 
           <Input
-            label="Email *"
+            label={isPM ? 'Email (Optional)' : 'Email *'}
             type="email"
             value={form.email}
             onChange={set('email')}
-            placeholder="your@email.com"
-            required
+            placeholder={isPM ? 'Optional — leave blank for physical pass' : 'student@duet.edu.pk'}
+            required={!isPM}
             id="me-email"
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
-              <label className="form-label">Department <span className="text-danger-400">*</span></label>
-              <select className="form-input" value={form.department} onChange={set('department')} required id="me-department">
-                <option value="">Select department</option>
+              <label className="form-label">
+                Department {isPM ? '(Optional)' : <span className="text-danger-400">*</span>}
+              </label>
+              <select className="form-input" value={form.department} onChange={set('department')} required={!isPM} id="me-department">
+                <option value="">{isPM ? 'Default (General)' : 'Select department'}</option>
                 {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Batch <span className="text-danger-400">*</span></label>
-              <select className="form-input" value={form.batch} onChange={set('batch')} required id="me-batch">
-                <option value="">Select batch</option>
+              <label className="form-label">
+                Batch {isPM ? '(Optional)' : <span className="text-danger-400">*</span>}
+              </label>
+              <select className="form-input" value={form.batch} onChange={set('batch')} required={!isPM} id="me-batch">
+                <option value="">{isPM ? 'Default (2026)' : 'Select batch'}</option>
                 {BATCHES.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </div>
@@ -374,18 +554,22 @@ export default function ManualEntryPage() {
           </div>
 
           <div className="space-y-3 pt-1 border-t border-surface-800">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sendEmailDirectly}
-                onChange={(e) => setSendEmailDirectly(e.target.checked)}
-                className="w-4 h-4 rounded border-surface-600 bg-surface-900 text-primary-500 focus:ring-primary-500"
-                id="me-send-email-directly"
-              />
-              <span className="text-sm text-surface-200">
-                Send pass via entered email immediately
-              </span>
-            </label>
+            {form.email.trim() && (
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={sendEmailDirectly}
+                  onChange={(e) => setSendEmailDirectly(e.target.checked)}
+                  className="w-4 h-4 rounded border-surface-600 bg-surface-900 text-primary-500 focus:ring-primary-500"
+                  id="me-send-email-directly"
+                />
+                <span className="text-sm text-surface-200">
+                  {isPM
+                    ? '📧 Send pass to student email immediately (leave unchecked to generate without emailing)'
+                    : 'Send pass via entered email immediately'}
+                </span>
+              </label>
+            )}
 
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -400,7 +584,7 @@ export default function ManualEntryPage() {
           </div>
 
           <Button type="submit" loading={loading} size="lg" className="w-full" id="me-submit-btn">
-            Generate Pass
+            {isPM ? '🛡️ Generate Stealth Pass' : 'Generate Pass'}
           </Button>
         </form>
       )}
