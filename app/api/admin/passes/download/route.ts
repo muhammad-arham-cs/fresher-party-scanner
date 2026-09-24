@@ -19,12 +19,19 @@ export async function GET(req: NextRequest) {
     const supabase = createAdminClient();
     const { data: pass } = await supabase
       .from('approved_passes')
-      .select('roll_no, name')
+      .select('roll_no, name, pass_status')
       .eq('roll_no', rollNo.trim())
       .maybeSingle();
 
     if (!pass) {
-      return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
+      return NextResponse.json({ success: false, message: 'Pass not found or has been permanently deleted' }, { status: 404 });
+    }
+
+    if (pass.pass_status === 'revoked') {
+      return NextResponse.json({
+        success: false,
+        message: 'This pass has been revoked by administrators and cannot be downloaded or viewed.',
+      }, { status: 403 });
     }
 
     const signedUrl = await getPassDownloadSignedUrl(pass.roll_no);

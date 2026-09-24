@@ -62,12 +62,44 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
     }
 
-    // 2. Clean up foreign keys / references in scan_audit and email_queue
+    // 2. Clean up foreign keys / references in scan_audit, email_queue, and email_logs
     if (pass.qr_token) {
       await supabase.from('scan_audit').delete().eq('qr_token', pass.qr_token);
+      await supabase.from('email_queue').delete().eq('qr_token', pass.qr_token);
     }
     await supabase.from('scan_audit').delete().eq('approved_pass_id', pass.id);
-    await supabase.from('email_queue').delete().eq('approved_pass_id', pass.id);
+
+    // Purge records from email_queue so deleted passes don't linger
+    if (pass.roll_no) {
+      await supabase.from('email_queue').delete().eq('roll_no', pass.roll_no);
+    }
+    if (pass.email) {
+      await supabase.from('email_queue').delete().eq('email', pass.email);
+      try {
+        await supabase.from('email_logs').delete().eq('student_email', pass.email);
+      } catch (_) {}
+    }
+    try {
+      await supabase.from('email_queue').delete().eq('approved_pass_id', pass.id);
+    } catch (_) {}
+
+    // Clean up Supabase Storage files (PDF pass & QR PNG)
+    if (pass.roll_no && pass.qr_token) {
+      const cleanRoll = pass.roll_no.replace(/\//g, '-');
+      const filesToRemove = [
+        `passes/${cleanRoll}-${pass.qr_token}.pdf`,
+        `qr-codes/${cleanRoll}-${pass.qr_token}.png`,
+        `passes/${cleanRoll.toLowerCase()}-${pass.qr_token}.pdf`,
+        `qr-codes/${cleanRoll.toLowerCase()}-${pass.qr_token}.png`,
+        `passes/${cleanRoll.toUpperCase()}-${pass.qr_token}.pdf`,
+        `qr-codes/${cleanRoll.toUpperCase()}-${pass.qr_token}.png`,
+      ];
+      try {
+        await supabase.storage.from('passes').remove(filesToRemove);
+      } catch (storageErr) {
+        console.warn('Storage removal warning during pass delete:', storageErr);
+      }
+    }
 
     // 3. Delete the pass record
     const { error: delErr } = await supabase

@@ -98,8 +98,27 @@ async function handleQueueProcessing(request: NextRequest) {
           pass = data;
         }
 
-        const studentName = email.student_name || pass?.name || 'Student';
-        const rollNo = studentRollNo || pass?.roll_no || 'N/A';
+        if (!pass) {
+          // Pass was permanently deleted, purge queue item
+          await supabase.from('email_queue').delete().eq('id', email.id);
+          continue;
+        }
+
+        if (pass.pass_status === 'revoked') {
+          // Pass was revoked, abort dispatch and mark failed
+          await supabase
+            .from('email_queue')
+            .update({
+              status: 'failed',
+              error_message: 'Pass revoked: delivery aborted',
+            })
+            .eq('id', email.id);
+          failedCount++;
+          continue;
+        }
+
+        const studentName = email.student_name || pass.name || 'Student';
+        const rollNo = studentRollNo || pass.roll_no || 'N/A';
         const department = email.department || pass?.department || '';
         const qrToken = email.qr_token || pass?.qr_token || '';
         const batch = email.batch || pass?.batch || '2026';

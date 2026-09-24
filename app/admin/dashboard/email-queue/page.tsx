@@ -35,6 +35,7 @@ interface QueuedEmail {
   society?: string;
   pass_pdf_url?: string;
   status: 'queued' | 'sent' | 'failed';
+  pass_status?: 'generated' | 'email_sent' | 'revoked' | 'deleted';
   attempts?: number;
   error_message?: string;
   created_at: string;
@@ -425,12 +426,19 @@ export default function EmailQueuePage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-xs">
-                        {item.pass_pdf_url ? (
+                        {item.pass_status === 'revoked' ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-sm"
+                            title="This pass has been revoked by administrators and cannot be accessed"
+                          >
+                            <span>⛔</span> Pass Revoked
+                          </span>
+                        ) : item.pass_pdf_url ? (
                           <a
                             href={item.pass_pdf_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-primary-400 hover:text-primary-300 hover:underline"
+                            className="inline-flex items-center gap-1 text-[11px] text-primary-400 hover:text-primary-300 hover:underline font-medium"
                           >
                             <span>📄</span> View PDF
                           </a>

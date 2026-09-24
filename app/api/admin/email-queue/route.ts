@@ -29,8 +29,62 @@ export async function GET(req: NextRequest) {
       query = query.eq('status', status);
     }
 
-    const { data: items, count, error } = await query;
+    const { data: rawItems, count, error } = await query;
     if (error) throw error;
+
+    // Attach pass_status and filter out/purge permanently deleted passes
+    const rollNos = Array.from(new Set((rawItems || []).map((i) => i.roll_no).filter(Boolean)));
+    const qrTokens = Array.from(new Set((rawItems || []).map((i) => i.qr_token).filter(Boolean)));
+
+    const passStatusByRoll = new Map<string, string>();
+    const passStatusByQr = new Map<string, string>();
+
+    if (rollNos.length > 0 || qrTokens.length > 0) {
+      const orClauses: string[] = [];
+      if (rollNos.length > 0) {
+        orClauses.push(`roll_no.in.(${rollNos.map((r) => `"${r}"`).join(',')})`);
+      }
+      if (qrTokens.length > 0) {
+        orClauses.push(`qr_token.in.(${qrTokens.map((t) => `"${t}"`).join(',')})`);
+      }
+
+      const { data: passes } = await supabase
+        .from('approved_passes')
+        .select('roll_no, qr_token, pass_status')
+        .or(orClauses.join(','));
+
+      if (passes) {
+        for (const p of passes) {
+          if (p.roll_no) passStatusByRoll.set(p.roll_no.toLowerCase(), p.pass_status || 'generated');
+          if (p.qr_token) passStatusByQr.set(p.qr_token, p.pass_status || 'generated');
+        }
+      }
+    }
+
+    const items: any[] = [];
+    const orphanIds: string[] = [];
+
+    for (const item of (rawItems || [])) {
+      const normRoll = (item.roll_no || '').toLowerCase();
+      const statusFromRoll = passStatusByRoll.get(normRoll);
+      const statusFromQr = item.qr_token ? passStatusByQr.get(item.qr_token) : undefined;
+      const passStatus = statusFromRoll || statusFromQr;
+
+      if (!passStatus) {
+        // Pass was permanently deleted from approved_passes!
+        orphanIds.push(item.id);
+      } else {
+        items.push({
+          ...item,
+          pass_status: passStatus,
+        });
+      }
+    }
+
+    // Purge orphaned items in background
+    if (orphanIds.length > 0) {
+      supabase.from('email_queue').delete().in('id', orphanIds).then(() => {});
+    }
 
     // Get count breakdown
     const { count: totalQueued } = await supabase.from('email_queue').select('*', { count: 'exact', head: true }).eq('status', 'queued');
@@ -45,7 +99,7 @@ export async function GET(req: NextRequest) {
         sent: totalSent || 0,
         failed: totalFailed || 0,
       },
-      items: items || [],
+      items,
       total: count || 0,
     });
   } catch (err) {

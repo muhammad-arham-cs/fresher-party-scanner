@@ -149,11 +149,11 @@ export async function getPassDownloadSignedUrl(rollNo: string): Promise<string |
 
   const { data: pass } = await supabase
     .from('approved_passes')
-    .select('id, roll_no, qr_token, pass_pdf_cached_url, pass_pdf_cache_expires')
+    .select('id, roll_no, qr_token, pass_pdf_cached_url, pass_pdf_cache_expires, pass_status')
     .eq('roll_no', rollNo)
     .maybeSingle();
 
-  if (!pass) return null;
+  if (!pass || pass.pass_status === 'revoked') return null;
 
   const now = new Date();
 

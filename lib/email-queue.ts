@@ -292,6 +292,32 @@ export async function processEmailQueue(): Promise<{
       const rollNo = item.roll_no;
       const studentName = item.student_name;
 
+      // Check if pass is deleted or revoked before dispatching email
+      const { data: pass } = await supabase
+        .from('approved_passes')
+        .select('id, pass_status')
+        .eq('roll_no', rollNo)
+        .maybeSingle();
+
+      if (!pass) {
+        // Pass was permanently deleted, purge from queue
+        await supabase.from('email_queue').delete().eq('id', item.id);
+        continue;
+      }
+
+      if (pass.pass_status === 'revoked') {
+        // Pass was revoked, abort dispatch
+        await supabase
+          .from('email_queue')
+          .update({
+            status: 'failed',
+            error_message: 'Pass revoked: delivery aborted',
+          })
+          .eq('id', item.id);
+        failed++;
+        continue;
+      }
+
       // Build PDF attachment (fetches from Storage once → attaches to email)
       const attachments = await buildPassAttachment(rollNo, item.qr_token || '', {
         name: studentName || 'Student',

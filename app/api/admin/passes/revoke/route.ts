@@ -60,7 +60,11 @@ export async function POST(req: NextRequest) {
 
     const { error: updateErr } = await supabase
       .from('approved_passes')
-      .update({ pass_status: newStatus })
+      .update({
+        pass_status: newStatus,
+        pass_pdf_cached_url: null,
+        pass_pdf_cache_expires: null,
+      })
       .eq('id', pass.id);
 
     if (updateErr) throw updateErr;
