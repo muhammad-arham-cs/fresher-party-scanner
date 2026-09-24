@@ -209,3 +209,54 @@ export function hasPermission(role: string, permission: string): boolean {
   if (rolePerms.includes('all')) return true;
   return rolePerms.includes(permission);
 }
+
+/**
+ * Resolves the dynamic base URL of the running application.
+ * Guaranteed to NEVER leak localhost in production.
+ * Inspects incoming request headers (x-forwarded-host / host),
+ * Vercel deployment URLs, and NEXT_PUBLIC_APP_URL.
+ */
+export function getBaseUrl(req?: {
+  headers?: { get(name: string): string | null };
+  nextUrl?: { origin?: string };
+  url?: string;
+}): string {
+  // 1. Dynamic request headers (most accurate on Vercel or reverse proxies)
+  if (req?.headers) {
+    const host = req.headers.get('x-forwarded-host') || req.headers.get('host');
+    if (host && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+      const proto = req.headers.get('x-forwarded-proto') || (req.url?.startsWith('https') ? 'https' : 'http');
+      return `${proto}://${host}`.replace(/\/+$/, '');
+    }
+  }
+
+  // 2. NextURL origin if available and not localhost
+  if (req?.nextUrl?.origin && !req.nextUrl.origin.includes('localhost') && !req.nextUrl.origin.includes('127.0.0.1')) {
+    return req.nextUrl.origin.replace(/\/+$/, '');
+  }
+
+  // 3. User configured NEXT_PUBLIC_APP_URL if non-localhost
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured && !configured.includes('localhost') && !configured.includes('127.0.0.1')) {
+    return configured.replace(/\/+$/, '');
+  }
+
+  // 4. Vercel auto-injected deployment URLs
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`.replace(/\/+$/, '');
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`.replace(/\/+$/, '');
+  }
+
+  // 5. Local development fallback
+  if (req?.nextUrl?.origin) {
+    return req.nextUrl.origin.replace(/\/+$/, '');
+  }
+  if (configured) {
+    return configured.replace(/\/+$/, '');
+  }
+
+  return 'http://localhost:3000';
+}
+

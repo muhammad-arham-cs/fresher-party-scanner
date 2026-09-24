@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession, hashPassword } from '@/lib/admin-auth';
+import { checkAdminSession, hashPassword, getBaseUrl } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { sendAdminInviteEmail } from '@/lib/brevo';
 import { logAuditEvent } from '@/lib/audit';
@@ -80,9 +80,9 @@ export async function POST(req: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // Send invite email with tokenized setup link
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const setupUrl = `${appUrl}/admin/onboarding?token=${setupToken}`;
+    // Send invite email with tokenized setup link (dynamically derived to avoid localhost leaks)
+    const baseUrl = getBaseUrl(req);
+    const setupUrl = `${baseUrl}/admin/onboarding?token=${setupToken}`;
 
     const emailResult = await sendAdminInviteEmail({ to: email, name, role, setupUrl });
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminSession } from '@/lib/admin-auth';
+import { checkAdminSession, getBaseUrl } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
 import { sendAdminInviteEmail } from '@/lib/brevo';
 import { logAuditEvent } from '@/lib/audit';
@@ -48,8 +48,8 @@ export async function POST(req: NextRequest) {
 
     if (updateErr) throw updateErr;
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const setupUrl = `${appUrl}/admin/onboarding?token=${setupToken}`;
+    const baseUrl = getBaseUrl(req);
+    const setupUrl = `${baseUrl}/admin/onboarding?token=${setupToken}`;
 
     const emailResult = await sendAdminInviteEmail({
       to: user.email,
