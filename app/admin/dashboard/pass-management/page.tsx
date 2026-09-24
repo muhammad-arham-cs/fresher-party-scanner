@@ -27,6 +27,7 @@ const STATUS_LABELS: Record<string, { label: string; class: string }> = {
   generated: { label: 'Generated', class: 'badge-neutral' },
   email_sent: { label: 'Email Sent', class: 'badge-success' },
   sent_via_whatsapp: { label: 'WhatsApp Sent', class: 'badge-primary' },
+  revoked: { label: 'Revoked', class: 'badge-danger bg-red-500/10 text-red-400 border border-red-500/30' },
 };
 
 const SOURCE_LABELS: Record<string, { label: string; class: string }> = {
@@ -43,6 +44,7 @@ export default function PassManagementPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [downloadingRoll, setDownloadingRoll] = useState<string | null>(null);
   const [emailingRoll, setEmailingRoll] = useState<string | null>(null);
+  const [revokingPassId, setRevokingPassId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchPasses = useCallback(async () => {
@@ -119,6 +121,44 @@ export default function PassManagementPage() {
     }
   };
 
+  const handleToggleRevoke = async (pass: Pass) => {
+    const isCurrentlyRevoked = pass.pass_status === 'revoked';
+    const confirmMessage = isCurrentlyRevoked
+      ? `Restore entry pass for ${pass.name} (${pass.roll_no})?\n\nTheir QR code and Ticket ID will become VALID for scanning at the gate again.`
+      : `Are you sure you want to REVOKE the pass for ${pass.name} (${pass.roll_no})?\n\nTheir QR code will immediately become INVALID and entry will be strictly DENIED at the gate.`;
+
+    if (!confirm(confirmMessage)) return;
+
+    setRevokingPassId(pass.id);
+    try {
+      const res = await fetch('/api/admin/passes/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pass_id: pass.id,
+          action: isCurrentlyRevoked ? 'restore' : 'revoke',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setToastMessage({
+          type: 'success',
+          text: `✅ ${data.message}`,
+        });
+        await fetchPasses();
+      } else {
+        setToastMessage({
+          type: 'error',
+          text: `❌ ${data.message || 'Failed to update pass status'}`,
+        });
+      }
+    } catch {
+      setToastMessage({ type: 'error', text: '❌ Network error changing pass status.' });
+    } finally {
+      setRevokingPassId(null);
+    }
+  };
+
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
 
   return (
@@ -158,6 +198,7 @@ export default function PassManagementPage() {
           <option value="generated">Generated</option>
           <option value="email_sent">Email Sent</option>
           <option value="sent_via_whatsapp">WhatsApp Sent</option>
+          <option value="revoked">Revoked</option>
         </select>
         <Button variant="secondary" size="sm" onClick={fetchPasses} id="pm-refresh-btn">Refresh</Button>
       </div>
@@ -229,6 +270,26 @@ export default function PassManagementPage() {
                               title="Mark as sent via WhatsApp"
                             >
                               {actionLoading === pass.id ? '...' : '📱 WhatsApp'}
+                            </button>
+                          )}
+                          {/* Revoke / Restore Pass Button */}
+                          {pass.pass_status !== 'revoked' ? (
+                            <button
+                              onClick={() => handleToggleRevoke(pass)}
+                              disabled={revokingPassId === pass.id}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors disabled:opacity-50"
+                              title="Revoke pass (invalidates QR code and denies gate entry)"
+                            >
+                              {revokingPassId === pass.id ? '⏳ ...' : '🚫 Revoke'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleToggleRevoke(pass)}
+                              disabled={revokingPassId === pass.id}
+                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                              title="Restore pass (re-enables QR code for gate entry)"
+                            >
+                              {revokingPassId === pass.id ? '⏳ ...' : '🔄 Restore'}
                             </button>
                           )}
                         </div>

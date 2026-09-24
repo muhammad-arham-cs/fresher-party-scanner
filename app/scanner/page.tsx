@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 
 interface ScanResult {
-  status: 'valid' | 'duplicate' | 'invalid' | 'expired' | 'error';
+  status: 'valid' | 'duplicate' | 'invalid' | 'expired' | 'error' | 'revoked';
   student_name?: string;
   roll_no?: string;
   ticket_id?: string;
@@ -422,6 +422,38 @@ export default function ScannerPage() {
               <p className="text-xs text-rose-200 mb-6">{result.message || 'Pass not recognized in the system database.'}</p>
               <Button onClick={resetScan} size="lg" className="w-full bg-rose-500 hover:bg-rose-600 text-white font-bold">
                 Try Again
+              </Button>
+            </div>
+          )}
+
+          {/* 4. Revoked Pass Screen (Strict Block - No Override) */}
+          {result.status === 'revoked' && (
+            <div className="w-full max-w-sm rounded-3xl p-6 bg-gradient-to-br from-red-950 via-surface-900 to-rose-950 border-2 border-red-600 text-center shadow-2xl animate-scale-in">
+              <div className="text-7xl mb-3">⛔</div>
+              <h2 className="text-2xl font-black text-red-400 mb-1">PASS REVOKED</h2>
+              <div className="inline-block px-3 py-1 bg-red-600/30 text-red-300 font-extrabold text-xs uppercase tracking-wider rounded-full mb-3 border border-red-500/40">
+                Entry Strictly Denied
+              </div>
+              {result.student_name && (
+                <h3 className="text-xl font-bold text-white mb-2">{result.student_name}</h3>
+              )}
+              {result.roll_no && (
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <span className="text-xs opacity-90 font-mono bg-black/40 px-2.5 py-1 rounded-lg border border-white/20">
+                    {result.roll_no}
+                  </span>
+                  {result.ticket_id && (
+                    <span className="text-xs font-mono font-bold bg-red-500/30 text-red-300 px-2.5 py-1 rounded-lg border border-red-500/40">
+                      🎟️ {result.ticket_id}
+                    </span>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-red-200 mb-6 font-semibold leading-relaxed">
+                {result.message || 'This pass has been cancelled/revoked by event administration.'}
+              </p>
+              <Button onClick={resetScan} size="lg" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold">
+                Scan Next Pass →
               </Button>
             </div>
           )}

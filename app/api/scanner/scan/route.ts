@@ -93,6 +93,31 @@ export async function POST(req: NextRequest) {
 
     const ticket_id = pass.ticket_id || (pass.section && pass.section.startsWith('FP26-') ? pass.section : formatTicketId(pass.qr_token));
 
+    // Security Check: Is pass revoked?
+    if (pass.pass_status === 'revoked') {
+      const now = new Date().toISOString();
+      await supabase.from('scan_audit').insert({
+        approved_pass_id: pass.id,
+        qr_token: pass.qr_token,
+        student_name: pass.name,
+        roll_no: pass.roll_no,
+        scanned_by: scannerName,
+        status: 'revoked',
+        device_info: `${device_info || ''} [REVOKED PASS SCAN ATTEMPT]`.trim(),
+        scanned_at: now,
+      });
+
+      return NextResponse.json({
+        status: 'revoked',
+        message: '⛔ This pass has been REVOKED by Administration. Entry Strictly Denied!',
+        student_name: pass.name,
+        roll_no: pass.roll_no,
+        ticket_id,
+        department: pass.department,
+        batch: pass.batch,
+      });
+    }
+
     // Security Update #2: QR Expiration Check (30 September 2026)
     const passExpiry = pass.expires_at ? new Date(pass.expires_at) : HARDCODED_EXPIRY;
     if (new Date() > passExpiry) {
