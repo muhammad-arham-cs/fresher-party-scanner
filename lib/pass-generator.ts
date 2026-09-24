@@ -68,9 +68,9 @@ export async function generatePassPDF(student: PassStudent): Promise<string> {
   doc.addImage(templateBase64, 'JPEG', 0, 0, 200, 100);
 
   // Center horizontal position for the right-stub text boxes
-  const centerX = 165.5;
+  const centerX = 165.45;
 
-  // 1. NAME BOX
+  // 1. NAME BOX (bounds: Y=[16.60 .. 22.66] mm, Center: 19.63 mm)
   doc.setFont('helvetica', 'bold');
   const cleanName = student.name.trim().toUpperCase();
   if (cleanName.length > 22) {
@@ -81,27 +81,26 @@ export async function generatePassPDF(student: PassStudent): Promise<string> {
     doc.setFontSize(9.5);
   }
   doc.setTextColor(20, 25, 40);
-  doc.text(cleanName, centerX, 21.8, { align: 'center' });
+  doc.text(cleanName, centerX, 19.63, { align: 'center', baseline: 'middle' });
 
-  // 2. ROLL NO BOX
+  // 2. ROLL NO BOX (bounds: Y=[32.42 .. 38.48] mm, Center: 35.45 mm)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(20, 25, 40);
-  doc.text(student.roll_no.trim().toUpperCase(), centerX, 37.6, { align: 'center' });
+  doc.text(student.roll_no.trim().toUpperCase(), centerX, 35.45, { align: 'center', baseline: 'middle' });
 
-  // 3. TICKET ID BOX
+  // 3. TICKET ID BOX (bounds: Y=[48.05 .. 54.10] mm, Center: 51.07 mm)
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(20, 25, 40);
-  doc.text(ticketId, centerX, 53.4, { align: 'center' });
+  doc.text(ticketId, centerX, 51.07, { align: 'center', baseline: 'middle' });
 
-  // 4. QR CODE (precisely centered inside the white dashed-border box)
-  // Measured box bounds in template: x: [148.2 .. 177.7], y: [57.0 .. 85.2] -> Center: (163.0, 71.1)
-  const qrSize = 27.0;
+  // 4. QR CODE (bounds: X=[148.63 .. 177.34], Y=[57.42 .. 84.77] mm -> Center: (163.0, 71.1) mm)
+  const qrSize = 25.5;
   const qrCenterX = 163.0;
   const qrCenterY = 71.1;
-  const qrX = qrCenterX - (qrSize / 2); // 149.5 mm
-  const qrY = qrCenterY - (qrSize / 2); // 57.6 mm
+  const qrX = qrCenterX - (qrSize / 2); // 150.25 mm
+  const qrY = qrCenterY - (qrSize / 2); // 58.35 mm
   doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
 
   return doc.output('datauristring');

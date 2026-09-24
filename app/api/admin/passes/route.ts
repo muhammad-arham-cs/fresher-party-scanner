@@ -33,7 +33,20 @@ export async function GET(req: NextRequest) {
     if (status !== 'all') query = query.eq('pass_status', status);
     if (search) query = query.or(`roll_no.ilike.%${search}%,name.ilike.%${search}%,section.ilike.%${search}%`);
 
-    const { data, count, error } = await query;
+    let { data, count, error } = await query;
+    if (error && error.message?.includes('created_by_pm')) {
+      let retryQuery = supabase
+        .from('approved_passes')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (status !== 'all') retryQuery = retryQuery.eq('pass_status', status);
+      if (search) retryQuery = retryQuery.or(`roll_no.ilike.%${search}%,name.ilike.%${search}%,section.ilike.%${search}%`);
+      const retry = await retryQuery;
+      data = retry.data;
+      count = retry.count;
+      error = retry.error;
+    }
     if (error) throw error;
 
     return NextResponse.json({ success: true, passes: data, total: count, is_pm: isPM });

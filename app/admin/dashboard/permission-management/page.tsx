@@ -26,6 +26,45 @@ export default function PermissionManagementPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [migrationNeeded, setMigrationNeeded] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const MIGRATION_SQL = `-- Run this in your Supabase Dashboard -> SQL Editor:
+ALTER TABLE admin_users 
+ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '{"audit_logs": false, "scanner_logs": false, "manual_entry": false, "user_management": false}'::jsonb;
+
+ALTER TABLE approved_passes 
+ADD COLUMN IF NOT EXISTS created_by_pm BOOLEAN DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS pm_pass_conflicts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  pm_pass_id UUID REFERENCES approved_passes(id) ON DELETE CASCADE,
+  conflicting_pass_id UUID REFERENCES approved_passes(id) ON DELETE CASCADE,
+  student_roll_no TEXT NOT NULL,
+  student_name TEXT,
+  conflicting_admin_email TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  resolved_at TIMESTAMPTZ
+);
+
+ALTER TABLE pm_pass_conflicts ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE tablename = 'pm_pass_conflicts' AND policyname = 'Service role full access on pm_pass_conflicts'
+  ) THEN
+    CREATE POLICY "Service role full access on pm_pass_conflicts" 
+    ON pm_pass_conflicts FOR ALL USING (true);
+  END IF;
+END $$;`;
+
+  const copyMigrationSql = () => {
+    navigator.clipboard.writeText(MIGRATION_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 3000);
+  };
 
   const fetchUsers = async () => {
     try {
@@ -43,6 +82,11 @@ export default function PermissionManagementPage() {
       const data = await res.json();
       if (data.success) {
         setUsers(data.users || []);
+        if (data.migration_needed) {
+          setMigrationNeeded(true);
+        } else {
+          setMigrationNeeded(false);
+        }
       } else {
         setError(data.message || 'Failed to load permissions');
       }
@@ -161,7 +205,33 @@ export default function PermissionManagementPage() {
         </div>
       </div>
 
-      {error && (
+      {migrationNeeded && (
+        <div className="p-5 rounded-2xl bg-amber-500/10 border-2 border-amber-500/40 text-xs space-y-3 animate-slide-down shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">⚡</span>
+              <div>
+                <h4 className="font-bold text-amber-300 text-sm">Supabase Database Setup Required</h4>
+                <p className="text-amber-200/80 text-xs mt-0.5">
+                  The <code className="bg-surface-900 px-1.5 py-0.5 rounded text-amber-400 font-mono">custom_permissions</code> column has not been added to your database yet. Copy the SQL below and run it in your Supabase SQL Editor to enable saving permissions.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={copyMigrationSql}
+              className="self-start sm:self-auto px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold transition-all flex items-center gap-2 shadow text-xs whitespace-nowrap"
+            >
+              <span>{copiedSql ? '✓ Copied to Clipboard!' : '📋 Copy Migration SQL'}</span>
+            </button>
+          </div>
+          <div className="p-3 rounded-xl bg-surface-950/90 border border-amber-500/20 font-mono text-[11px] text-surface-300 overflow-x-auto">
+            <p className="text-amber-400 font-bold mb-1 text-[10px] uppercase tracking-wider">// Quick SQL Snippet (Run in Supabase Dashboard -&gt; SQL Editor):</p>
+            <code>ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT &apos;&#123;&quot;audit_logs&quot;: false, &quot;scanner_logs&quot;: false, &quot;manual_entry&quot;: false, &quot;user_management&quot;: false&#125;&apos;::jsonb;</code>
+          </div>
+        </div>
+      )}
+
+      {error && !migrationNeeded && (
         <div className="p-4 rounded-xl bg-danger-500/10 border border-danger-500/30 text-danger-300 text-xs">
           ⚠️ {error}
         </div>

@@ -21,13 +21,30 @@ export async function GET() {
   }
 
   const supabase = createAdminClient();
-  const { data: users, error } = await supabase
+  let users: any[] | null = null;
+  let migrationNeeded = false;
+
+  const { data: rawUsers, error } = await supabase
     .from('admin_users')
     .select('id, name, email, role, is_active, custom_permissions, last_login, created_at')
     .order('created_at', { ascending: true });
 
   if (error) {
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    if (error.message?.includes('custom_permissions') || (error as any).code === '42703') {
+      migrationNeeded = true;
+      const fallback = await supabase
+        .from('admin_users')
+        .select('id, name, email, role, is_active, last_login, created_at')
+        .order('created_at', { ascending: true });
+      if (fallback.error) {
+        return NextResponse.json({ success: false, message: fallback.error.message }, { status: 500 });
+      }
+      users = fallback.data;
+    } else {
+      return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    }
+  } else {
+    users = rawUsers;
   }
 
   const sanitizedUsers = (users || []).map((u) => {
@@ -48,7 +65,7 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ success: true, users: sanitizedUsers });
+  return NextResponse.json({ success: true, users: sanitizedUsers, migration_needed: migrationNeeded });
 }
 
 /**
@@ -116,6 +133,13 @@ export async function POST(req: NextRequest) {
       .eq('id', userId);
 
     if (updateError) {
+      if (updateError.message?.includes('custom_permissions') || (updateError as any).code === '42703') {
+        return NextResponse.json({
+          success: false,
+          migration_needed: true,
+          message: 'Database setup required: The custom_permissions column does not exist yet. Please run the SQL migration in Supabase SQL editor to create the custom_permissions column before saving.',
+        }, { status: 400 });
+      }
       return NextResponse.json({ success: false, message: updateError.message }, { status: 500 });
     }
 
