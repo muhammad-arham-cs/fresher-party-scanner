@@ -74,6 +74,22 @@ export async function POST(req: NextRequest) {
 
     if (updateErr) throw updateErr;
 
+    // If revoked, immediately abort any pending emails in email_queue
+    if (newStatus === 'revoked') {
+      try {
+        await supabase
+          .from('email_queue')
+          .update({
+            status: 'failed',
+            error_message: 'Pass revoked: delivery aborted by administrator',
+          })
+          .eq('status', 'queued')
+          .eq('roll_no', pass.roll_no);
+      } catch (qErr) {
+        console.warn('Warning updating email_queue on pass revocation:', qErr);
+      }
+    }
+
     // Log in audit_logs
     await logAuditEvent({
       action_type: auditAction,

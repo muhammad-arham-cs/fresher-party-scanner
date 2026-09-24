@@ -41,6 +41,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
     }
 
+    if (pass.pass_status === 'revoked') {
+      return NextResponse.json({
+        success: false,
+        message: `Pass for "${pass.name}" has been revoked by administrators and cannot be emailed. Please restore the pass first.`,
+      }, { status: 400 });
+    }
+
     if (!pass.email || !pass.email.trim() || !pass.email.includes('@')) {
       return NextResponse.json({
         success: false,

@@ -31,7 +31,8 @@ export default function ManualEntryPage() {
     name: '', roll_no: '', email: '', department: '', batch: '', section: '', society: '', is_society_member: false,
   });
   const [isPM, setIsPM] = useState(false);
-  const [sendEmailDirectly, setSendEmailDirectly] = useState(false);
+  const [passMode, setPassMode] = useState<'normal' | 'stealth'>('normal');
+  const [sendEmailDirectly, setSendEmailDirectly] = useState(true);
   const [loading, setLoading] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailFeedback, setEmailFeedback] = useState<string | null>(null);
@@ -60,8 +61,8 @@ export default function ManualEntryPage() {
           const pm = data.admin.role === 'PROJECT_MANAGER' || 
             ['muhammadarham979@gmail.com', 'arham.personal28@gmail.com'].includes(data.admin.email?.toLowerCase());
           setIsPM(pm);
-          // If PM: default email sending to false (ask first); if not PM, default true
-          setSendEmailDirectly(!pm);
+          // Default email sending to true for Normal Mode
+          setSendEmailDirectly(true);
 
           if (pm) {
             fetchConflicts();
@@ -117,14 +118,16 @@ export default function ManualEntryPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isPM) {
+    const isStealthMode = Boolean(isPM && passMode === 'stealth');
+
+    if (isStealthMode) {
       if (!form.name.trim() || !form.roll_no.trim()) {
-        setError('Student Name and Roll Number are required.');
+        setError('Student Name and Roll Number are required for Stealth pass generation.');
         return;
       }
     } else {
       if (!form.name.trim() || !form.roll_no.trim() || !form.email.trim() || !form.department.trim() || !form.batch.trim()) {
-        setError('Full Name, Roll Number, Email, Department, and Batch are required.');
+        setError('Full Name, Roll Number, Email, Department, and Batch are required for Normal pass generation.');
         return;
       }
     }
@@ -140,6 +143,7 @@ export default function ManualEntryPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          pass_mode: isPM ? passMode : 'normal',
           send_email_now: form.email.trim() ? sendEmailDirectly : false,
         }),
       });
@@ -355,17 +359,97 @@ export default function ManualEntryPage() {
         <div className="flex items-center gap-2 mb-1">
           <h1 className="section-title">Manual Pass Entry</h1>
           {isPM && (
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              🛡️ PM Stealth Mode
+            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+              passMode === 'stealth'
+                ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                : 'bg-primary-500/20 text-primary-300 border-primary-500/30'
+            }`}>
+              {passMode === 'stealth' ? '🛡️ PM Stealth Mode' : '🎟️ Normal Mode'}
             </span>
           )}
         </div>
         <p className="section-subtitle">
           {isPM
-            ? 'Generate VIP or offline passes. PM passes are hidden from all other admins, logs, and queue metrics.'
+            ? passMode === 'stealth'
+              ? 'Generate VIP or offline stealth passes. Stealth passes are hidden from all other admins, public logs, and queue metrics.'
+              : 'Generate standard official passes. Fully visible across Pass Management, Scanner Logs, Email Queue, and Audit Logs.'
             : 'Add a student entry directly for late cash registrations or society members.'}
         </p>
       </div>
+
+      {/* ─── PM Pass Mode Selector (Only visible to Project Manager) ─── */}
+      {isPM && !success && (
+        <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
+              Pass Generation Type
+            </span>
+            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+              passMode === 'stealth'
+                ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                : 'bg-primary-500/10 text-primary-300 border-primary-500/30'
+            }`}>
+              {passMode === 'stealth' ? '🛡️ Stealth Active' : '🎟️ Normal Mode Active'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Normal Pass Option */}
+            <button
+              type="button"
+              onClick={() => {
+                setPassMode('normal');
+                setSendEmailDirectly(true);
+                setError('');
+              }}
+              className={`p-3.5 rounded-xl border text-left transition-all relative ${
+                passMode === 'normal'
+                  ? 'bg-primary-500/10 border-primary-500/60 ring-1 ring-primary-500/40 shadow-lg shadow-primary-500/10'
+                  : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 hover:border-slate-600'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-bold text-sm text-white flex items-center gap-1.5">
+                  <span>🎟️</span> Normal Pass
+                </span>
+                {passMode === 'normal' && (
+                  <span className="w-2 h-2 rounded-full bg-primary-400 animate-pulse" />
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                Official student pass. Visible to all admins across Pass Management, Scanner Logs, Email Queue, and Audit Logs.
+              </p>
+            </button>
+
+            {/* Stealth Pass Option */}
+            <button
+              type="button"
+              onClick={() => {
+                setPassMode('stealth');
+                setSendEmailDirectly(false);
+                setError('');
+              }}
+              className={`p-3.5 rounded-xl border text-left transition-all relative ${
+                passMode === 'stealth'
+                  ? 'bg-amber-500/10 border-amber-500/60 ring-1 ring-amber-500/40 shadow-lg shadow-amber-500/10'
+                  : 'bg-slate-800/60 border-slate-700/60 hover:bg-slate-800 hover:border-slate-600'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-bold text-sm text-amber-300 flex items-center gap-1.5">
+                  <span>🛡️</span> Stealth Pass (Ghost)
+                </span>
+                {passMode === 'stealth' && (
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                Private / VIP pass. Completely hidden from all other admins, scanner logs, and queue metrics.
+              </p>
+            </button>
+          </div>
+        </div>
+      )}
 
       {success && (
         <div className="p-6 rounded-2xl bg-success-500/10 border border-success-500/30 animate-scale-in space-y-4">
@@ -512,31 +596,31 @@ export default function ManualEntryPage() {
           </div>
 
           <Input
-            label={isPM ? 'Email (Optional)' : 'Email *'}
+            label={(isPM && passMode === 'stealth') ? 'Email (Optional)' : 'Email *'}
             type="email"
             value={form.email}
             onChange={set('email')}
-            placeholder={isPM ? 'Optional — leave blank for physical pass' : 'student@duet.edu.pk'}
-            required={!isPM}
+            placeholder={(isPM && passMode === 'stealth') ? 'Optional — leave blank for physical pass' : 'student@duet.edu.pk'}
+            required={!isPM || passMode === 'normal'}
             id="me-email"
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="form-label">
-                Department {isPM ? '(Optional)' : <span className="text-danger-400">*</span>}
+                Department {(!isPM || passMode === 'normal') ? <span className="text-danger-400">*</span> : '(Optional)'}
               </label>
-              <select className="form-input" value={form.department} onChange={set('department')} required={!isPM} id="me-department">
-                <option value="">{isPM ? 'Default (General)' : 'Select department'}</option>
+              <select className="form-input" value={form.department} onChange={set('department')} required={!isPM || passMode === 'normal'} id="me-department">
+                <option value="">{(isPM && passMode === 'stealth') ? 'Default (General)' : 'Select department'}</option>
                 {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label className="form-label">
-                Batch {isPM ? '(Optional)' : <span className="text-danger-400">*</span>}
+                Batch {(!isPM || passMode === 'normal') ? <span className="text-danger-400">*</span> : '(Optional)'}
               </label>
-              <select className="form-input" value={form.batch} onChange={set('batch')} required={!isPM} id="me-batch">
-                <option value="">{isPM ? 'Default (2026)' : 'Select batch'}</option>
+              <select className="form-input" value={form.batch} onChange={set('batch')} required={!isPM || passMode === 'normal'} id="me-batch">
+                <option value="">{(isPM && passMode === 'stealth') ? 'Default (2026)' : 'Select batch'}</option>
                 {BATCHES.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </div>
@@ -564,7 +648,7 @@ export default function ManualEntryPage() {
                   id="me-send-email-directly"
                 />
                 <span className="text-sm text-surface-200">
-                  {isPM
+                  {isPM && passMode === 'stealth'
                     ? '📧 Send pass to student email immediately (leave unchecked to generate without emailing)'
                     : 'Send pass via entered email immediately'}
                 </span>
@@ -583,8 +667,18 @@ export default function ManualEntryPage() {
             </label>
           </div>
 
-          <Button type="submit" loading={loading} size="lg" className="w-full" id="me-submit-btn">
-            {isPM ? '🛡️ Generate Stealth Pass' : 'Generate Pass'}
+          <Button
+            type="submit"
+            loading={loading}
+            size="lg"
+            className={`w-full font-bold transition-all ${
+              isPM && passMode === 'stealth'
+                ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-lg shadow-amber-500/20'
+                : 'btn-primary'
+            }`}
+            id="me-submit-btn"
+          >
+            {isPM && passMode === 'stealth' ? '🛡️ Generate Stealth Pass' : '🎟️ Generate Normal Pass'}
           </Button>
         </form>
       )}

@@ -33,21 +33,24 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, roll_no, email, department, batch, section, society, is_society_member, send_email_now } = body;
+    const { name, roll_no, email, department, batch, section, society, is_society_member, send_email_now, pass_mode } = body;
 
-    // 2. Validation: PM only requires name & roll_no; non-PM requires all fields
-    if (isPM) {
+    // Only PM can activate stealth mode; default is 'normal'
+    const isStealth = Boolean(isPM && pass_mode === 'stealth');
+
+    // 2. Validation: Stealth requires only name & roll_no; Normal requires all fields
+    if (isStealth) {
       if (!name || !roll_no) {
         return NextResponse.json({
           success: false,
-          message: 'Student name and roll number are required for Project Manager pass generation',
+          message: 'Student name and roll number are required for Stealth pass generation',
         }, { status: 400 });
       }
     } else {
       if (!name || !roll_no || !email || !department || !batch) {
         return NextResponse.json({
           success: false,
-          message: 'Full name, roll number, email, department, and batch are required',
+          message: 'Full name, roll number, email, department, and batch are required for Normal pass generation',
         }, { status: 400 });
       }
     }
@@ -55,8 +58,8 @@ export async function POST(req: NextRequest) {
     const cleanName = (name || '').trim();
     const cleanRollNo = (roll_no || '').trim().toUpperCase();
     const cleanEmail = (email || '').trim();
-    const cleanDept = (department || (isPM ? 'General' : '')).trim();
-    const cleanBatch = (batch || (isPM ? '2026' : '')).trim();
+    const cleanDept = (department || (isStealth ? 'General' : '')).trim();
+    const cleanBatch = (batch || (isStealth ? '2026' : '')).trim();
     const cleanSection = section?.trim() || null;
     const cleanSociety = society?.trim() || '';
 
@@ -82,38 +85,67 @@ export async function POST(req: NextRequest) {
     const pmPass = (existingList || []).find((p) => p.created_by_pm === true);
     const nonPmPass = (existingList || []).find((p) => !p.created_by_pm);
 
-    let conflictWithPmPassId: string | null = null;
-
-    if (isPM) {
-      // If PM is generating, check if a PM pass already exists
+    if (isStealth) {
+      // PM is generating in stealth mode
       if (pmPass) {
         const isRevoked = pmPass.pass_status === 'revoked';
         return NextResponse.json({
           success: false,
           message: isRevoked
-            ? 'A PM pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
-            : 'You already generated an approved pass for this student.',
+            ? 'A stealth pass was previously generated but is currently REVOKED. You can reactivate or delete it.'
+            : 'You already generated a stealth pass for this student.',
           existing_pass: pmPass,
         }, { status: 409 });
       }
-    } else {
-      // Non-PM user is generating
       if (nonPmPass) {
-        // A regular pass already exists: reject as usual
+        return NextResponse.json({
+          success: false,
+          message: 'A normal pass already exists for this student in the system.',
+          existing_pass: nonPmPass,
+        }, { status: 409 });
+      }
+    } else {
+      // Normal mode (PM or non-PM)
+      if (nonPmPass) {
         const isRevoked = nonPmPass.pass_status === 'revoked';
         return NextResponse.json({
           success: false,
           message: isRevoked
             ? 'Pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
-            : 'This student already has an approved pass',
+            : 'This student already has an approved pass in the system.',
           existing_pass: nonPmPass,
         }, { status: 409 });
       }
 
       // If a PM stealth pass exists for this student:
-      // Allow non-PM to generate their pass without suspicion, but record conflict!
       if (pmPass) {
-        conflictWithPmPassId = pmPass.id;
+        if (isPM) {
+          return NextResponse.json({
+            success: false,
+            message: 'You previously generated a stealth pass for this student. Delete it first if you wish to generate a normal pass.',
+            existing_pass: pmPass,
+          }, { status: 409 });
+        } else {
+          // Record conflict alert for PM, and prevent DB unique constraint violation crash
+          try {
+            await supabase.from('pm_pass_conflicts').insert({
+              pm_pass_id: pmPass.id,
+              student_roll_no: cleanRollNo,
+              student_name: cleanName,
+              conflicting_admin_email: session.email,
+              status: 'pending',
+              created_at: new Date().toISOString(),
+            });
+          } catch (confErr) {
+            console.error('Failed to log pm_pass_conflict:', confErr);
+          }
+
+          return NextResponse.json({
+            success: false,
+            message: 'This student already has an approved pass registered in the system.',
+            existing_pass: { roll_no: cleanRollNo, name: cleanName },
+          }, { status: 409 });
+        }
       }
     }
 
@@ -171,7 +203,7 @@ export async function POST(req: NextRequest) {
       source: 'manual_entry',
       is_society_member: is_society_member || false,
       entry_created_by: session.email,
-      created_by_pm: isPM,
+      created_by_pm: isStealth,
       pass_generated_at: now,
       pass_pdf_url: passPdfUrl,
       expires_at: HARDCODED_EXPIRY,
@@ -195,32 +227,15 @@ export async function POST(req: NextRequest) {
 
     if (insertError) throw insertError;
 
-    // 5. If this generation conflicted with a PM stealth pass, record in pm_pass_conflicts
-    if (conflictWithPmPassId && newPass?.id) {
-      try {
-        await supabase.from('pm_pass_conflicts').insert({
-          pm_pass_id: conflictWithPmPassId,
-          conflicting_pass_id: newPass.id,
-          student_roll_no: cleanRollNo,
-          student_name: cleanName,
-          conflicting_admin_email: session.email,
-          status: 'pending',
-          created_at: now,
-        });
-      } catch (confErr) {
-        console.error('Failed to log pm_pass_conflict (table may need migration):', confErr);
-      }
-    }
-
-    // 6. Email Handling
+    // 5. Email Handling
     let emailSent = false;
     let emailQueued = false;
     let apiUsed: string | null = null;
 
     if (cleanEmail && cleanEmail.includes('@')) {
-      // For PM: ONLY send if explicitly confirmed (`send_email_now === true`).
-      // For non-PM: send immediately if quota allows, else queue.
-      const shouldAttemptSend = isPM ? send_email_now === true : send_email_now !== false;
+      // For stealth mode: ONLY send if explicitly confirmed (`send_email_now === true`).
+      // For normal mode (PM or non-PM): send immediately if quota allows, else queue.
+      const shouldAttemptSend = isStealth ? send_email_now === true : send_email_now !== false;
 
       if (shouldAttemptSend) {
         const quota = await checkEmailQuota();
@@ -301,7 +316,9 @@ export async function POST(req: NextRequest) {
         society: cleanSociety,
         email_sent: emailSent,
         email_queued: emailQueued,
-        created_by_pm: isPM,
+        created_by_pm: isStealth,
+        is_stealth: isStealth,
+        pass_mode: isStealth ? 'stealth' : 'normal',
         api_used: apiUsed,
       },
     });
@@ -320,7 +337,8 @@ export async function POST(req: NextRequest) {
       roll_no: cleanRollNo,
       name: cleanName,
       email: cleanEmail,
-      is_pm_pass: isPM,
+      is_pm_pass: isStealth,
+      pass_mode: isStealth ? 'stealth' : 'normal',
     });
   } catch (err: any) {
     console.error('Manual entry error:', err);

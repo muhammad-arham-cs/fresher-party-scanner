@@ -47,10 +47,13 @@ export async function GET() {
 
     const { data: passes } = await supabase
       .from('approved_passes')
-      .select('id, roll_no, name, section, ticket_id, pass_status, created_at, entry_created_by, pass_pdf_url')
+      .select('id, roll_no, name, section, pass_status, created_at, entry_created_by, pass_pdf_url')
       .in('id', passIds);
 
-    const passMap = new Map((passes || []).map((p) => [p.id, p]));
+    const passMap = new Map((passes || []).map((p) => [
+      p.id,
+      { ...p, ticket_id: p.section || 'Assigned' }
+    ]));
 
     const enriched = conflicts.map((c) => ({
       ...c,

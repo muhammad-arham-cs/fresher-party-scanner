@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
         // Check for existing pass
         const { data: existing } = await supabase
           .from('approved_passes')
-          .select('id, roll_no, ticket_id, section')
+          .select('id, roll_no, section')
           .ilike('roll_no', cleanRoll)
           .maybeSingle();
 
