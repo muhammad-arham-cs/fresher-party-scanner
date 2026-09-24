@@ -50,12 +50,13 @@ export async function GET() {
   const sanitizedUsers = (users || []).map((u) => {
     const userIsPM = u.role === 'PROJECT_MANAGER' || isPMEmail(u.email);
     const perms = userIsPM
-      ? { audit_logs: true, scanner_logs: true, manual_entry: true, user_management: true }
+      ? { audit_logs: true, scanner_logs: true, manual_entry: true, user_management: true, scanned_passes: true }
       : {
           audit_logs: Boolean(u.custom_permissions?.audit_logs),
           scanner_logs: Boolean(u.custom_permissions?.scanner_logs),
           manual_entry: Boolean(u.custom_permissions?.manual_entry),
           user_management: Boolean(u.custom_permissions?.user_management),
+          scanned_passes: Boolean(u.custom_permissions?.scanned_passes),
         };
 
     return {
@@ -111,6 +112,7 @@ export async function POST(req: NextRequest) {
       scanner_logs: Boolean(targetUser.custom_permissions?.scanner_logs),
       manual_entry: Boolean(targetUser.custom_permissions?.manual_entry),
       user_management: Boolean(targetUser.custom_permissions?.user_management),
+      scanned_passes: Boolean(targetUser.custom_permissions?.scanned_passes),
     };
 
     if (custom_permissions && typeof custom_permissions === 'object') {
@@ -119,9 +121,10 @@ export async function POST(req: NextRequest) {
         scanner_logs: Boolean(custom_permissions.scanner_logs),
         manual_entry: Boolean(custom_permissions.manual_entry),
         user_management: Boolean(custom_permissions.user_management),
+        scanned_passes: Boolean(custom_permissions.scanned_passes),
       };
     } else if (permission) {
-      if (!['audit_logs', 'scanner_logs', 'manual_entry', 'user_management'].includes(permission)) {
+      if (!['audit_logs', 'scanner_logs', 'manual_entry', 'user_management', 'scanned_passes'].includes(permission)) {
         return NextResponse.json({ success: false, message: 'Invalid permission key' }, { status: 400 });
       }
       updatedPerms[permission as keyof typeof updatedPerms] = Boolean(enabled);

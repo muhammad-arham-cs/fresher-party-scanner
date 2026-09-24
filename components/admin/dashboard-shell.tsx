@@ -76,6 +76,16 @@ const NAV_ITEMS: NavItem[] = [
     ),
   },
   {
+    label: 'Scanned Passes',
+    href: '/admin/dashboard/scanned-passes',
+    roles: ['PROJECT_MANAGER'],
+    icon: (
+      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  },
+  {
     label: 'Audit Logs',
     href: '/admin/dashboard/audit-logs',
     roles: ['PROJECT_MANAGER', 'ENTRY_SUPERVISOR', 'ENTRY_MANAGER'],
@@ -143,12 +153,15 @@ export default function DashboardShell({
       return false;
     }
 
-    // 4 Restricted features check dynamic per-user custom_permissions
+    // 5 Restricted features check dynamic per-user custom_permissions
     if (item.href === '/admin/dashboard/audit-logs') {
       return Boolean(admin.custom_permissions?.audit_logs);
     }
     if (item.href === '/admin/dashboard/scanner-logs') {
       return Boolean(admin.custom_permissions?.scanner_logs);
+    }
+    if (item.href === '/admin/dashboard/scanned-passes') {
+      return Boolean(admin.custom_permissions?.scanned_passes);
     }
     if (item.href === '/admin/dashboard/manual-entry') {
       return Boolean(admin.custom_permissions?.manual_entry);

@@ -12,6 +12,7 @@ export interface CustomPermissions {
   scanner_logs?: boolean;
   manual_entry?: boolean;
   user_management?: boolean;
+  scanned_passes?: boolean;
 }
 
 export interface AdminSession {
@@ -165,11 +166,13 @@ export async function authenticateAdmin(email: string, password: string): Promis
     name: admin.name,
     role: admin.role,
     is_active: admin.is_active,
-    custom_permissions: admin.custom_permissions || {
+    custom_permissions: {
       audit_logs: false,
       scanner_logs: false,
       manual_entry: false,
       user_management: false,
+      scanned_passes: false,
+      ...(admin.custom_permissions || {}),
     },
   };
 }
@@ -186,13 +189,20 @@ export async function getLiveAdminPermissions(userId: string): Promise<CustomPer
       .eq('id', userId)
       .maybeSingle();
 
-    if (!data) return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+    if (!data) return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false, scanned_passes: false };
     if (data.role === 'PROJECT_MANAGER' || isPMEmail(data.email)) {
-      return { audit_logs: true, scanner_logs: true, manual_entry: true, user_management: true };
+      return { audit_logs: true, scanner_logs: true, manual_entry: true, user_management: true, scanned_passes: true };
     }
-    return data.custom_permissions || { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+    return {
+      audit_logs: false,
+      scanner_logs: false,
+      manual_entry: false,
+      user_management: false,
+      scanned_passes: false,
+      ...(data.custom_permissions || {}),
+    };
   } catch {
-    return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false };
+    return { audit_logs: false, scanner_logs: false, manual_entry: false, user_management: false, scanned_passes: false };
   }
 }
 
@@ -258,8 +268,8 @@ export function hasPermission(
 
   if (role === 'PROJECT_MANAGER') return true;
 
-  // 4 Restricted features that require explicit dynamic per-user permission
-  const restrictedPermissions = ['audit_logs', 'scanner_logs', 'manual_entry', 'user_management'];
+  // 5 Restricted features that require explicit dynamic per-user permission
+  const restrictedPermissions = ['audit_logs', 'scanner_logs', 'manual_entry', 'user_management', 'scanned_passes'];
   if (restrictedPermissions.includes(permission)) {
     return Boolean(customPerms?.[permission as keyof CustomPermissions]);
   }

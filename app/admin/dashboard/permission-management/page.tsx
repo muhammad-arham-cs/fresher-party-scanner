@@ -15,6 +15,7 @@ interface UserPermissionItem {
     scanner_logs: boolean;
     manual_entry: boolean;
     user_management: boolean;
+    scanned_passes: boolean;
   };
 }
 
@@ -31,7 +32,7 @@ export default function PermissionManagementPage() {
 
   const MIGRATION_SQL = `-- Run this in your Supabase Dashboard -> SQL Editor:
 ALTER TABLE admin_users 
-ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '{"audit_logs": false, "scanner_logs": false, "manual_entry": false, "user_management": false}'::jsonb;
+ADD COLUMN IF NOT EXISTS custom_permissions JSONB DEFAULT '{"audit_logs": false, "scanner_logs": false, "manual_entry": false, "user_management": false, "scanned_passes": false}'::jsonb;
 
 ALTER TABLE approved_passes 
 ADD COLUMN IF NOT EXISTS created_by_pm BOOLEAN DEFAULT FALSE;
@@ -102,7 +103,11 @@ END $$;`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleToggle = async (userId: string, permission: 'audit_logs' | 'scanner_logs' | 'manual_entry' | 'user_management', currentVal: boolean) => {
+  const handleToggle = async (
+    userId: string,
+    permission: 'audit_logs' | 'scanner_logs' | 'manual_entry' | 'user_management' | 'scanned_passes',
+    currentVal: boolean
+  ) => {
     const key = `${userId}-${permission}`;
     setSavingKey(key);
     const nextVal = !currentVal;
@@ -287,18 +292,24 @@ END $$;`;
                     <span className="text-[9px] text-surface-500 font-normal lowercase">invite & manage admins</span>
                   </div>
                 </th>
+                <th className="py-3.5 px-4 text-center font-bold">
+                  <div className="flex flex-col items-center">
+                    <span>🎟️ Scanned Passes</span>
+                    <span className="text-[9px] text-surface-500 font-normal lowercase">admitted passes & count</span>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-surface-800/60">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-surface-500">
+                  <td colSpan={7} className="py-12 text-center text-surface-500">
                     <div className="inline-block animate-spin mr-2">⏳</div> Loading permission matrix...
                   </td>
                 </tr>
               ) : filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-12 text-center text-surface-500">
+                  <td colSpan={7} className="py-12 text-center text-surface-500">
                     No admin accounts found matching your search.
                   </td>
                 </tr>
@@ -423,6 +434,28 @@ END $$;`;
                           <span
                             className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${
                               user.custom_permissions.user_management ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      )}
+                    </td>
+
+                    {/* 5. Scanned Passes Toggle */}
+                    <td className="py-3.5 px-4 text-center">
+                      {user.is_pm ? (
+                        <span className="text-[10px] font-bold text-amber-400/90 font-mono">FULL ACCESS</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleToggle(user.id, 'scanned_passes', user.custom_permissions.scanned_passes)}
+                          disabled={savingKey === `${user.id}-scanned_passes`}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                            user.custom_permissions.scanned_passes ? 'bg-cyan-600' : 'bg-surface-800 border border-surface-700'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-md ${
+                              user.custom_permissions.scanned_passes ? 'translate-x-6' : 'translate-x-1'
                             }`}
                           />
                         </button>
