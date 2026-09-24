@@ -14,20 +14,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Access denied: pass_management permission required' }, { status: 403 });
     }
 
-    const { pass_id, action } = await req.json();
-    if (!pass_id) {
-      return NextResponse.json({ success: false, message: 'Pass ID is required' }, { status: 400 });
+    const { pass_id, roll_no, action } = await req.json();
+    if (!pass_id && !roll_no) {
+      return NextResponse.json({ success: false, message: 'Pass ID or Roll Number is required' }, { status: 400 });
     }
 
     const supabase = createAdminClient();
 
-    const { data: pass, error: fetchErr } = await supabase
-      .from('approved_passes')
-      .select('id, name, roll_no, email, pass_status, pass_sent_at, ticket_id')
-      .eq('id', pass_id)
-      .maybeSingle();
+    let query = supabase.from('approved_passes').select('id, name, roll_no, email, pass_status, pass_sent_at, section');
+    if (pass_id) {
+      query = query.eq('id', pass_id);
+    } else if (roll_no) {
+      query = query.eq('roll_no', roll_no.trim());
+    }
+
+    let { data: pass, error: fetchErr } = await query.maybeSingle();
+
+    // Defensive fallback in case schema has drifted
+    if (fetchErr || !pass) {
+      let retryQuery = supabase.from('approved_passes').select('*');
+      if (pass_id) retryQuery = retryQuery.eq('id', pass_id);
+      else if (roll_no) retryQuery = retryQuery.eq('roll_no', roll_no.trim());
+      const retry = await retryQuery.maybeSingle();
+      pass = retry.data;
+      fetchErr = retry.error;
+    }
 
     if (fetchErr || !pass) {
+      console.error('Pass lookup failed in revoke route:', fetchErr);
       return NextResponse.json({ success: false, message: 'Pass not found' }, { status: 404 });
     }
 
@@ -60,7 +74,7 @@ export async function POST(req: NextRequest) {
       student_name: pass.name,
       details: {
         pass_id: pass.id,
-        ticket_id: pass.ticket_id,
+        ticket_id: pass.section,
         previous_status: pass.pass_status,
         new_status: newStatus,
       },

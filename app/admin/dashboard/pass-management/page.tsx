@@ -45,6 +45,7 @@ export default function PassManagementPage() {
   const [downloadingRoll, setDownloadingRoll] = useState<string | null>(null);
   const [emailingRoll, setEmailingRoll] = useState<string | null>(null);
   const [revokingPassId, setRevokingPassId] = useState<string | null>(null);
+  const [deletingPassId, setDeletingPassId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const fetchPasses = useCallback(async () => {
@@ -124,8 +125,8 @@ export default function PassManagementPage() {
   const handleToggleRevoke = async (pass: Pass) => {
     const isCurrentlyRevoked = pass.pass_status === 'revoked';
     const confirmMessage = isCurrentlyRevoked
-      ? `Restore entry pass for ${pass.name} (${pass.roll_no})?\n\nTheir QR code and Ticket ID will become VALID for scanning at the gate again.`
-      : `Are you sure you want to REVOKE the pass for ${pass.name} (${pass.roll_no})?\n\nTheir QR code will immediately become INVALID and entry will be strictly DENIED at the gate.`;
+      ? `Reactivate entry pass for ${pass.name} (${pass.roll_no})?\n\nTheir QR code and Ticket ID will become VALID for scanning at the gate again.`
+      : `Are you sure you want to REVOKE the pass for ${pass.name} (${pass.roll_no})?\n\nEntry will be strictly DENIED at the gate (even if previously checked in).`;
 
     if (!confirm(confirmMessage)) return;
 
@@ -156,6 +157,37 @@ export default function PassManagementPage() {
       setToastMessage({ type: 'error', text: '❌ Network error changing pass status.' });
     } finally {
       setRevokingPassId(null);
+    }
+  };
+
+  const handleDeletePass = async (pass: Pass) => {
+    const confirmMsg = `Are you sure you want to PERMANENTLY DELETE the pass for ${pass.name} (${pass.roll_no})?\n\nThis will completely remove the pass from the database so you can re-generate a new pass for this student either manually or via Excel upload.`;
+    if (!confirm(confirmMsg)) return;
+
+    setDeletingPassId(pass.id);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pass_id: pass.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setToastMessage({
+          type: 'success',
+          text: `🗑️ ${data.message}`,
+        });
+        await fetchPasses();
+      } else {
+        setToastMessage({
+          type: 'error',
+          text: `❌ ${data.message || 'Failed to delete pass'}`,
+        });
+      }
+    } catch {
+      setToastMessage({ type: 'error', text: '❌ Network error deleting pass.' });
+    } finally {
+      setDeletingPassId(null);
     }
   };
 
@@ -272,25 +304,35 @@ export default function PassManagementPage() {
                               {actionLoading === pass.id ? '...' : '📱 WhatsApp'}
                             </button>
                           )}
-                          {/* Revoke / Restore Pass Button */}
+                          {/* Revoke / Restore / Delete Pass Buttons */}
                           {pass.pass_status !== 'revoked' ? (
                             <button
                               onClick={() => handleToggleRevoke(pass)}
                               disabled={revokingPassId === pass.id}
                               className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors disabled:opacity-50"
-                              title="Revoke pass (invalidates QR code and denies gate entry)"
+                              title="Revoke pass (invalidates QR code and strictly denies gate entry)"
                             >
                               {revokingPassId === pass.id ? '⏳ ...' : '🚫 Revoke'}
                             </button>
                           ) : (
-                            <button
-                              onClick={() => handleToggleRevoke(pass)}
-                              disabled={revokingPassId === pass.id}
-                              className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
-                              title="Restore pass (re-enables QR code for gate entry)"
-                            >
-                              {revokingPassId === pass.id ? '⏳ ...' : '🔄 Restore'}
-                            </button>
+                            <>
+                              <button
+                                onClick={() => handleToggleRevoke(pass)}
+                                disabled={revokingPassId === pass.id}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                                title="Reactivate pass (re-enables QR code for gate entry)"
+                              >
+                                {revokingPassId === pass.id ? '⏳ ...' : '🔄 Reactivate'}
+                              </button>
+                              <button
+                                onClick={() => handleDeletePass(pass)}
+                                disabled={deletingPassId === pass.id}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                title="Permanently delete pass record (enables fresh re-generation)"
+                              >
+                                {deletingPassId === pass.id ? '⏳ ...' : '🗑️ Delete'}
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

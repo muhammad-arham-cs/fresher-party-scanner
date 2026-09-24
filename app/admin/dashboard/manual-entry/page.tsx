@@ -9,9 +9,11 @@ const SOCIETIES = ['CS', 'AI', 'DS', 'CY'];
 const BATCHES = ['2024', '2023', '2022', '2021'];
 
 interface ExistingPass {
+  id?: string;
   roll_no: string;
   pass_pdf_url: string;
   pass_status: string;
+  is_revoked?: boolean;
 }
 
 export default function ManualEntryPage() {
@@ -129,6 +131,63 @@ export default function ManualEntryPage() {
     }
   };
 
+  const [reactivating, setReactivating] = useState(false);
+  const [deletingExisting, setDeletingExisting] = useState(false);
+
+  const handleReactivateExisting = async (passId?: string, rollNo?: string) => {
+    setReactivating(true);
+    setError('');
+    setEmailFeedback(null);
+    try {
+      const res = await fetch('/api/admin/passes/revoke', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pass_id: passId,
+          roll_no: rollNo,
+          action: 'restore',
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEmailFeedback(`✅ Pass reactivated! The student's QR code is now valid for entry.`);
+        setExistingPass(null);
+      } else {
+        setError(data.message || 'Failed to reactivate pass');
+      }
+    } catch {
+      setError('Network error reactivating pass');
+    } finally {
+      setReactivating(false);
+    }
+  };
+
+  const handleDeleteExisting = async (passId?: string) => {
+    if (!passId) return;
+    if (!confirm('Are you sure you want to permanently delete this pass record? You will then be able to generate a fresh new pass with a new ticket ID.')) return;
+    setDeletingExisting(true);
+    setError('');
+    setEmailFeedback(null);
+    try {
+      const res = await fetch('/api/admin/passes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pass_id: passId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEmailFeedback(`🗑️ Pass deleted permanently. You can now click "Generate Pass" below to create a fresh new pass.`);
+        setExistingPass(null);
+      } else {
+        setError(data.message || 'Failed to delete pass');
+      }
+    } catch {
+      setError('Network error deleting pass');
+    } finally {
+      setDeletingExisting(false);
+    }
+  };
+
   const reset = () => {
     setSuccess(null);
     setExistingPass(null);
@@ -199,9 +258,45 @@ export default function ManualEntryPage() {
       )}
 
       {existingPass && (
-        <div className="p-5 rounded-2xl bg-warning-500/10 border border-warning-500/30 animate-scale-in">
-          <p className="text-warning-400 font-semibold mb-2">⚠️ This student already has a pass ({existingPass.pass_status})</p>
-          <div className="flex gap-3">
+        <div className={`p-5 rounded-2xl border animate-scale-in space-y-3 ${
+          existingPass.pass_status === 'revoked'
+            ? 'bg-rose-500/10 border-rose-500/30'
+            : 'bg-warning-500/10 border-warning-500/30'
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{existingPass.pass_status === 'revoked' ? '⛔' : '⚠️'}</span>
+            <div>
+              <p className={`font-bold ${existingPass.pass_status === 'revoked' ? 'text-rose-400' : 'text-warning-400'}`}>
+                {existingPass.pass_status === 'revoked'
+                  ? 'Pass Already Generated, but is currently REVOKED'
+                  : `This student already has an active pass (${existingPass.pass_status})`}
+              </p>
+              <p className="text-surface-300 text-xs mt-0.5">
+                Roll Number: <span className="font-mono text-white font-semibold">{existingPass.roll_no}</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2.5 flex-wrap pt-1">
+            {existingPass.pass_status === 'revoked' && (
+              <Button
+                variant="success"
+                size="sm"
+                loading={reactivating}
+                onClick={() => handleReactivateExisting(existingPass.id, existingPass.roll_no)}
+              >
+                🔄 Reactivate Pass
+              </Button>
+            )}
+            {existingPass.id && (
+              <Button
+                variant="danger"
+                size="sm"
+                loading={deletingExisting}
+                onClick={() => handleDeleteExisting(existingPass.id)}
+              >
+                🗑️ Delete Old Pass
+              </Button>
+            )}
             <Button
               variant="secondary"
               size="sm"

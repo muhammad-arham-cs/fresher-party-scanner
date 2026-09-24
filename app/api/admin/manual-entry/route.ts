@@ -58,13 +58,18 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (existing) {
+      const isRevoked = existing.pass_status === 'revoked';
       return NextResponse.json({
         success: false,
-        message: 'This student already has an approved pass',
+        message: isRevoked
+          ? 'Pass was previously generated but is currently REVOKED. You can reactivate it or delete it to regenerate.'
+          : 'This student already has an approved pass',
         existing_pass: {
+          id: existing.id,
           roll_no: existing.roll_no,
           pass_pdf_url: existing.pass_pdf_url,
           pass_status: existing.pass_status,
+          is_revoked: isRevoked,
         },
       }, { status: 409 });
     }
