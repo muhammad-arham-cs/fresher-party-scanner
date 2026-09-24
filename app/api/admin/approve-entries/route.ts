@@ -136,7 +136,11 @@ export async function POST(req: NextRequest) {
             try {
               // Build attachment and branded email
               const attachments = await buildPassAttachment(cleanRoll, qr_token, studentData);
-              const htmlContent = buildPassEmailHtml(entry.name.trim(), cleanRoll);
+              const htmlContent = buildPassEmailHtml(entry.name.trim(), cleanRoll, {
+                ticketId: studentData.ticket_id,
+                department: entry.department,
+                batch: entry.batch,
+              });
 
               const sendResult = await sendEmailWithFailover(
                 studentEmail,

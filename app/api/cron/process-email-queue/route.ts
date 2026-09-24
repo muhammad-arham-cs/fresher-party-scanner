@@ -135,7 +135,11 @@ async function handleQueueProcessing(request: NextRequest) {
         });
 
         // Build email HTML (says "Your pass is attached" — no signed URL link)
-        const htmlContent = buildPassEmailHtml(studentName, rollNo);
+        const htmlContent = buildPassEmailHtml(studentName, rollNo, {
+          ticketId: pass?.section,
+          department,
+          batch,
+        });
 
         // Send with failover: Primary Brevo → Backup Brevo → Grok
         const result = await sendEmailWithFailover(

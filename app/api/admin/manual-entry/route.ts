@@ -251,7 +251,11 @@ export async function POST(req: NextRequest) {
             ticket_id,
           });
 
-          const htmlContent = buildPassEmailHtml(cleanName, cleanRollNo);
+          const htmlContent = buildPassEmailHtml(cleanName, cleanRollNo, {
+            ticketId: ticket_id,
+            department: cleanDept,
+            batch: cleanBatch,
+          });
           const sendResult = await sendEmailWithFailover(
             cleanEmail,
             '🎉 Your Fresher Party 2026 Pass is Ready!',

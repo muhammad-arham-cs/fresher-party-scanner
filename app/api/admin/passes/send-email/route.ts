@@ -80,7 +80,11 @@ export async function POST(req: NextRequest) {
     });
 
     // Build email HTML (no signed URL link needed — PDF is attached)
-    const htmlContent = buildPassEmailHtml(studentName, studentRollNo);
+    const htmlContent = buildPassEmailHtml(studentName, studentRollNo, {
+      ticketId: pass.section,
+      department: pass.department,
+      batch: pass.batch,
+    });
 
     // Send email with PDF attachment via failover: Primary Brevo → Backup Brevo → Grok
     const sendResult = await sendEmailWithFailover(

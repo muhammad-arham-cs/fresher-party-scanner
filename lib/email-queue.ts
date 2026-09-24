@@ -329,7 +329,10 @@ export async function processEmailQueue(): Promise<{
       });
 
       // Build email HTML (says "Your pass is attached" — no signed URL link)
-      const htmlContent = buildPassEmailHtml(studentName || 'Student', rollNo);
+      const htmlContent = buildPassEmailHtml(studentName || 'Student', rollNo, {
+        department: item.department,
+        batch: item.batch,
+      });
 
       // Send with multi-API failover: Primary Brevo → Backup Brevo → Grok
       const result = await sendEmailWithFailover(
