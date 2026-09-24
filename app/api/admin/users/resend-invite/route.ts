@@ -29,20 +29,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'User not found' }, { status: 404 });
     }
 
-    if (!user.is_active) {
-      return NextResponse.json({ success: false, message: 'Cannot resend invite to a revoked user' }, { status: 400 });
-    }
+    const isReactivating = !user.is_active;
 
-    // Refresh token with 24-hour expiration
+    // Refresh token with 24-hour expiration and ensure account is active
     const setupToken = uuidv4();
     const setupExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
 
     const { error: updateErr } = await supabase
       .from('admin_users')
       .update({
         password_setup_token: setupToken,
         password_setup_expires: setupExpires,
+        is_active: true,
+        last_login: null,
       })
       .eq('id', user.id);
 
@@ -59,25 +58,31 @@ export async function POST(req: NextRequest) {
     });
 
     await logAuditEvent({
-      action_type: 'admin_user_invited',
+      action_type: isReactivating ? 'admin_user_reactivated' : 'admin_user_invited',
       performed_by: session.email,
       user_role: session.role,
       student_name: user.name,
       details: {
         invited_email: user.email,
         role: user.role,
-        is_resend: true,
+        is_resend: !isReactivating,
+        reactivated: isReactivating,
         email_sent: emailResult.success,
       },
     });
 
+    const successMsg = isReactivating
+      ? `Account reactivated and invitation sent to ${user.email}!`
+      : `Invite resent to ${user.email}!`;
+
     return NextResponse.json({
       success: true,
       message: emailResult.success
-        ? `Invite resent to ${user.email}!`
+        ? successMsg
         : `New link generated, but email delivery issue: ${emailResult.error || 'Provider issue'}. Copy link manually.`,
       setup_url: setupUrl,
       email_sent: emailResult.success,
+      reactivated: isReactivating,
     });
   } catch (err) {
     console.error('Resend invite error:', err);

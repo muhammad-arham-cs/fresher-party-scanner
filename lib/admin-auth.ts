@@ -118,8 +118,11 @@ export async function checkScannerSession(): Promise<AdminSession | null> {
  * Check if an email is a hardcoded PM email.
  */
 export function isPMEmail(email: string): boolean {
-  const pmEmails = (process.env.PM_EMAILS || '').split(',').map((e) => e.trim().toLowerCase());
-  return pmEmails.includes(email.toLowerCase());
+  if (!email) return false;
+  const hardcoded = ['muhammadarham979@gmail.com', 'arham.personal28@gmail.com'];
+  const pmEmails = (process.env.PM_EMAILS || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const allPMs = Array.from(new Set([...hardcoded, ...pmEmails]));
+  return allPMs.includes(email.toLowerCase());
 }
 
 /**

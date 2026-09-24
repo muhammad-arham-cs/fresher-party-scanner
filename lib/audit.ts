@@ -7,7 +7,10 @@ export type AuditActionType =
   | 'manual_entry_created'
   | 'admin_login'
   | 'email_sent'
-  | 'admin_user_invited';
+  | 'admin_user_invited'
+  | 'admin_user_revoked'
+  | 'admin_user_deleted'
+  | 'admin_user_reactivated';
 
 export interface LogAuditParams {
   action_type: AuditActionType;

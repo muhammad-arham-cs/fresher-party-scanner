@@ -43,9 +43,10 @@ export default function UserManagementPage() {
   const [newUser, setNewUser] = useState({ email: '', name: '', role: 'ENTRY_MANAGER' });
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState('');
-  const [invitedResult, setInvitedResult] = useState<{ email: string; setup_url: string } | null>(null);
+  const [invitedResult, setInvitedResult] = useState<{ email: string; setup_url: string; reactivated?: boolean } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
   const [revokeLoading, setRevokeLoading] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -73,7 +74,7 @@ export default function UserManagementPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setInvitedResult({ email: newUser.email, setup_url: data.setup_url });
+        setInvitedResult({ email: newUser.email, setup_url: data.setup_url, reactivated: !!data.reactivated });
         setNewUser({ email: '', name: '', role: 'ENTRY_MANAGER' });
         await fetchUsers();
       } else {
@@ -118,13 +119,42 @@ export default function UserManagementPage() {
     if (!confirm(`Revoke access for ${userName}? They will not be able to login.`)) return;
     setRevokeLoading(userId);
     try {
-      await fetch('/api/admin/revoke-user', {
+      const res = await fetch('/api/admin/revoke-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
       });
-      await fetchUsers();
+      const data = await res.json();
+      if (data.success) {
+        setFeedbackMessage(`🔒 Access revoked for ${userName}`);
+        await fetchUsers();
+      } else {
+        alert(data.message || 'Failed to revoke user');
+      }
+    } catch {
+      alert('Network error revoking user');
     } finally { setRevokeLoading(null); }
+  };
+
+  const handleDelete = async (userId: string, userName: string, userEmail: string) => {
+    if (!confirm(`Are you sure you want to permanently delete "${userName}" (${userEmail})?\n\nThis will remove their record completely from the database so you can re-add them if needed.`)) return;
+    setDeleteLoading(userId);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFeedbackMessage(`🗑️ ${data.message || 'User deleted permanently'}`);
+        await fetchUsers();
+      } else {
+        alert(data.message || 'Failed to delete user');
+      }
+    } catch {
+      alert('Network error deleting user');
+    } finally { setDeleteLoading(null); }
   };
 
   return (
@@ -216,6 +246,26 @@ export default function UserManagementPage() {
                               Revoke
                             </Button>
                           )}
+                          {!user.is_active && (
+                            <>
+                              <button
+                                onClick={() => handleResend(user)}
+                                disabled={resendingId === user.id}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                                title="Reactivate account and dispatch fresh invite link"
+                              >
+                                {resendingId === user.id ? '⏳ ...' : '🔄 Reactivate'}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(user.id, user.name, user.email)}
+                                disabled={deleteLoading === user.id}
+                                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors disabled:opacity-50"
+                                title="Permanently delete user record"
+                              >
+                                {deleteLoading === user.id ? '⏳ ...' : '🗑️ Delete'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -245,7 +295,9 @@ export default function UserManagementPage() {
               <div className="space-y-4 py-2">
                 <div className="text-center">
                   <div className="text-4xl mb-2">🎉</div>
-                  <p className="text-success-400 font-bold text-lg">Admin Invited!</p>
+                  <p className="text-success-400 font-bold text-lg">
+                    {invitedResult.reactivated ? 'Admin Reactivated!' : 'Admin Invited!'}
+                  </p>
                   <p className="text-surface-300 text-sm">
                     Invitation email dispatched to <strong className="text-white">{invitedResult.email}</strong>.
                   </p>
