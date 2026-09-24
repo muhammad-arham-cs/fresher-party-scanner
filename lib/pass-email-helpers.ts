@@ -106,19 +106,33 @@ export function buildPassEmailHtml(
         ${batch ? `<p style="margin: 6px 0; font-size: 14px; color: #334155;"><strong>Batch:</strong> ${batch}</p>` : ''}
       </div>
 
-      <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 24px 0;">
+      <p style="font-size: 14px; color: #475569; line-height: 1.6; margin: 0 0 20px 0;">
         Your pass is attached to this email as a PDF. Please download it and have the QR code ready on your phone when arriving at the entry gate.
       </p>
+
+      <!-- IMPORTANT WARNING NOTICE FOR ATTENDEE -->
+      <div style="background-color: #fff1f2; border: 1px solid #fecdd3; border-left: 4px solid #e11d48; padding: 14px 18px; border-radius: 12px; margin: 20px 0;">
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 800; color: #9f1239; letter-spacing: 0.3px;">
+          ⚠️ IMPORTANT NOTICE — STRICT ONE-TIME ENTRY:
+        </p>
+        <p style="margin: 0; font-size: 13px; color: #881337; line-height: 1.5;">
+          Please <strong>do not share your pass or QR code with anyone</strong>. Each pass QR code is <strong>strictly single-use and valid only once at the gate</strong>. If your pass is shared, duplicate-scanned, or used by anyone else, entry will be permanently denied and event organizers will not be responsible for any issues caused ahead.
+        </p>
+      </div>
 
       <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; text-align: center;">
         <p style="color: #64748b; font-size: 13px; font-weight: 600; margin: 0 0 4px 0;">
           Campus of Information and Computing Sciences
         </p>
-        <p style="color: #94a3b8; font-size: 12px; margin: 0;">
+        <p style="color: #94a3b8; font-size: 12px; margin: 0 0 10px 0;">
           Dawood University of Engineering & Technology
+        </p>
+        <p style="color: #cbd5e1; font-size: 11px; margin: 0; letter-spacing: 0.5px;">
+          Powered by <strong style="color: #94a3b8;">Muhammad Arham</strong>
         </p>
       </div>
     </div>
   `;
 }
+
 

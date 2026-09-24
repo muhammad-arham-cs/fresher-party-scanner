@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface AdminUser {
   id: string;
@@ -211,7 +212,7 @@ export default function UserManagementPage() {
                         </span>
                       </td>
                       <td className="text-surface-400 text-xs">
-                        {user.last_login ? new Date(user.last_login).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Never'}
+                        {user.last_login ? formatPKTDateTime(user.last_login, false) : 'Never'}
                       </td>
                       <td className="text-surface-500 text-xs">{user.created_by || 'System'}</td>
                       <td>

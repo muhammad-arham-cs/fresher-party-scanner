@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface ScanResult {
   status: 'valid' | 'duplicate' | 'invalid' | 'expired' | 'error' | 'revoked';
@@ -754,7 +755,7 @@ export default function ScannerPage() {
                 </div>
 
                 <div className="bg-black/40 rounded-xl p-3 mb-5 text-left text-xs text-amber-200 border border-amber-500/30 space-y-1">
-                  <p>⏱️ Checked in: <strong className="text-white">{result.scanned_at ? new Date(result.scanned_at).toLocaleTimeString() : 'Earlier'}</strong></p>
+                  <p>⏱️ Checked in: <strong className="text-white">{result.scanned_at ? formatPKTDateTime(result.scanned_at) : 'Earlier'}</strong></p>
                   <p>👤 Volunteer: <strong className="text-white">{result.scanned_by || 'Gate Scanner'}</strong></p>
                 </div>
 

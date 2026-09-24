@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface Pass {
   id: string;
@@ -197,7 +198,7 @@ export default function PassManagementPage() {
     }
   };
 
-  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+  const formatDate = (d: string | null) => d ? formatPKTDateTime(d, false) : '—';
 
   return (
     <div className="space-y-6">

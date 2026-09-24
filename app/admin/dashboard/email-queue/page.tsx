@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface QuotaData {
   date?: string;
@@ -414,16 +415,7 @@ export default function EmailQueuePage() {
                         )}
                       </td>
                       <td className="px-5 py-3.5 text-xs text-gray-400 whitespace-nowrap">
-                        {timestamp ? (
-                          new Date(timestamp).toLocaleString([], {
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
-                        ) : (
-                          '--'
-                        )}
+                        {timestamp ? formatPKTDateTime(timestamp) : '--'}
                       </td>
                       <td className="px-5 py-3.5 text-xs">
                         {item.pass_status === 'revoked' ? (

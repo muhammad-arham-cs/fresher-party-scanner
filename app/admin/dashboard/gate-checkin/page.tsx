@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { formatPKTDateTime, formatPKTTime } from '@/lib/date-utils';
 
 interface CheckinResult {
   status: 'valid' | 'duplicate' | 'invalid' | 'expired' | 'error';
@@ -101,7 +102,7 @@ export default function GateCheckinPage() {
         setHistory((prev) => [
           {
             id: String(Date.now()),
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: formatPKTTime(new Date()),
             student_name: data.student_name || 'Student',
             roll_no: data.roll_no || query,
             ticket_id: data.ticket_id || query,
@@ -152,7 +153,7 @@ export default function GateCheckinPage() {
         setHistory((prev) => [
           {
             id: String(Date.now()),
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: formatPKTTime(new Date()),
             student_name: data.student_name || 'Student',
             roll_no: data.roll_no || tokenToOverride,
             ticket_id: data.ticket_id || tokenToOverride,
@@ -310,7 +311,7 @@ export default function GateCheckinPage() {
                 <p className="text-amber-200">
                   ⏱️ First checked in at:{' '}
                   <strong className="text-white">
-                    {result.scanned_at ? new Date(result.scanned_at).toLocaleTimeString() : 'Earlier today'}
+                    {result.scanned_at ? formatPKTDateTime(result.scanned_at) : 'Earlier today'}
                   </strong>
                 </p>
                 <p className="text-amber-200">

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatPKTDateTime, formatPKTTime, formatPKTDate } from '@/lib/date-utils';
 
 interface ScannedPassItem {
   id: string;
@@ -85,7 +86,7 @@ export default function ScannedPassesPage() {
       `"${s.roll_no || ''}"`,
       `"${s.department || ''}"`,
       `"${s.batch || ''}"`,
-      `"${new Date(s.scanned_at).toLocaleString('en-PK')}"`,
+      `"${formatPKTDateTime(s.scanned_at, true)}"`,
       `"${s.scanned_by || ''}"`,
       `"${s.is_override ? 'Forced Override' : 'Valid Entry'}"`,
     ]);
@@ -327,10 +328,10 @@ export default function ScannedPassesPage() {
                     {/* Scanned Time */}
                     <td>
                       <div className="text-xs text-surface-200 font-mono">
-                        {new Date(scan.scanned_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                        {formatPKTTime(scan.scanned_at, true)}
                       </div>
                       <div className="text-[10px] text-surface-500">
-                        {new Date(scan.scanned_at).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {formatPKTDate(scan.scanned_at)}
                       </div>
                     </td>
 

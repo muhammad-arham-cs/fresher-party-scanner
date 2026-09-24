@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface AuditLog {
   id: string;
@@ -191,14 +192,8 @@ export default function AuditLogsPage() {
                           👤 {log.performed_by}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-surface-400 text-xs whitespace-nowrap">
-                        {new Date(log.created_at).toLocaleString([], {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit',
-                        })}
+                      <td className="px-4 py-3 text-surface-400 text-xs whitespace-nowrap font-mono">
+                        {formatPKTDateTime(log.created_at, true)}
                       </td>
                       <td className="px-4 py-3 text-xs text-surface-400 max-w-xs">
                         {log.details ? (

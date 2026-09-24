@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { formatPKTDateTime } from '@/lib/date-utils';
 
 interface ScanLog {
   id: string;
@@ -40,7 +41,7 @@ export default function ScannerLogsPage() {
   const exportCSV = () => {
     const header = ['Time', 'Student', 'Roll No', 'Volunteer', 'Status'];
     const rows = logs.map((l) => [
-      new Date(l.scanned_at).toLocaleString(),
+      formatPKTDateTime(l.scanned_at, true),
       l.student_name, l.roll_no, l.scanned_by,
       l.status,
     ]);
@@ -113,7 +114,7 @@ export default function ScannerLogsPage() {
                   const statusInfo = STATUS_MAP[log.status] || { label: log.status, class: 'badge-neutral' };
                   return (
                     <tr key={log.id}>
-                      <td className="text-surface-400 text-xs font-mono">{new Date(log.scanned_at).toLocaleString('en-PK')}</td>
+                      <td className="text-surface-400 text-xs font-mono">{formatPKTDateTime(log.scanned_at, true)}</td>
                       <td className="font-medium text-white">{log.student_name}</td>
                       <td className="font-mono text-primary-400 text-xs">{log.roll_no}</td>
                       <td className="text-surface-300">{log.scanned_by}</td>

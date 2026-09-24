@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAdminSession, getLiveAdminPermissions, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
+import { formatPKTDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -109,7 +110,7 @@ export async function GET(req: NextRequest) {
     }
 
     // 5. Combine and calculate stats
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayPKT = formatPKTDate(new Date());
     const departmentBreakdown: Record<string, number> = {};
     let scannedTodayCount = 0;
 
@@ -125,8 +126,8 @@ export async function GET(req: NextRequest) {
       // Tally department
       departmentBreakdown[dept] = (departmentBreakdown[dept] || 0) + 1;
 
-      // Tally today
-      if (scan.scanned_at && scan.scanned_at.startsWith(todayStr)) {
+      // Tally today according to Pakistan Time
+      if (scan.scanned_at && formatPKTDate(scan.scanned_at) === todayPKT) {
         scannedTodayCount++;
       }
 
