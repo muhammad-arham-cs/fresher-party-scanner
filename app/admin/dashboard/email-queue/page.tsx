@@ -18,6 +18,7 @@ interface QuotaData {
   queued_count: number;
   is_cooldown: boolean;
   cooldown_reason?: string;
+  hourly_override_active?: boolean;
 }
 
 interface QueueStats {
@@ -55,6 +56,9 @@ export default function EmailQueuePage() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'queued' | 'sent' | 'failed'>('all');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isPM, setIsPM] = useState(false);
+  const [togglingOverride, setTogglingOverride] = useState(false);
+  const [resettingCounter, setResettingCounter] = useState(false);
 
   const fetchQueueData = useCallback(async () => {
     try {
@@ -64,6 +68,9 @@ export default function EmailQueuePage() {
         setQuota(data.quota);
         setStats(data.stats || { queued: 0, sent: 0, failed: 0 });
         setItems(data.items || []);
+        if (typeof data.is_pm === 'boolean') {
+          setIsPM(data.is_pm);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch email queue data:', err);
@@ -71,6 +78,58 @@ export default function EmailQueuePage() {
       setLoading(false);
     }
   }, [filterStatus]);
+
+  const handleToggleHourlyOverride = async () => {
+    if (!isPM || togglingOverride) return;
+    const nextVal = !quota?.hourly_override_active;
+    setTogglingOverride(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/admin/email-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggle_hourly_override', enabled: nextVal }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMessage({ type: 'success', text: data.message });
+        if (data.quota) setQuota(data.quota);
+        await fetchQueueData();
+      } else {
+        setStatusMessage({ type: 'error', text: data.message || 'Failed to update hourly override' });
+      }
+    } catch {
+      setStatusMessage({ type: 'error', text: 'Error communicating with server' });
+    } finally {
+      setTogglingOverride(false);
+    }
+  };
+
+  const handleResetHourlyCounter = async () => {
+    if (!isPM || resettingCounter) return;
+    if (!confirm('Are you sure you want to reset current hour quota count back to 0?')) return;
+    setResettingCounter(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/admin/email-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_hourly_quota' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMessage({ type: 'success', text: data.message });
+        if (data.quota) setQuota(data.quota);
+        await fetchQueueData();
+      } else {
+        setStatusMessage({ type: 'error', text: data.message || 'Failed to reset hourly quota' });
+      }
+    } catch {
+      setStatusMessage({ type: 'error', text: 'Error connecting to server' });
+    } finally {
+      setResettingCounter(false);
+    }
+  };
 
   useEffect(() => {
     fetchQueueData();
@@ -150,7 +209,9 @@ export default function EmailQueuePage() {
 
   const sentThisHour = quota?.hourly_used ?? 0;
   const sentToday = quota?.daily_used ?? 0;
-  const hourlyPercent = Math.min(100, Math.round((sentThisHour / 70) * 100));
+  const isOverrideActive = Boolean(quota?.hourly_override_active);
+  const effectiveHourLimit = isOverrideActive ? (quota?.hourly_limit ?? 550) : 70;
+  const hourlyPercent = Math.min(100, Math.round((sentThisHour / effectiveHourLimit) * 100));
   const dailyPercent = Math.min(100, Math.round((sentToday / 550) * 100));
   const minutesToReset = quota?.minutes_to_reset ?? 60;
 
@@ -163,7 +224,7 @@ export default function EmailQueuePage() {
             <span>📬</span> Email Queue & Delivery Monitor
           </h1>
           <p className="text-xs text-gray-400 mt-1">
-            Real-time Brevo multi-API dispatcher · Rate limited to 70/hour & 550/day
+            Real-time Brevo multi-API dispatcher · Rate limited to {isOverrideActive ? '550/day (Hourly Override Active)' : '70/hour & 550/day'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -186,9 +247,9 @@ export default function EmailQueuePage() {
             onClick={handleProcessNow}
             loading={processing}
             size="sm"
-            className="bg-primary-600 hover:bg-primary-500 text-xs shadow-lg shadow-primary-600/20"
+            className="bg-primary-600 hover:bg-primary-500 text-xs shadow-lg shadow-primary-600/20 font-bold"
           >
-            ⚡ Process Queue Now
+            ⚡ {isOverrideActive ? 'Process Queue Batch (Send 70)' : 'Process Queue Now'}
           </Button>
         </div>
       </div>
@@ -215,28 +276,46 @@ export default function EmailQueuePage() {
       {/* Live Quota Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Hourly Card */}
-        <div className="bg-slate-800/80 border border-slate-700/60 p-5 rounded-2xl shadow-xl backdrop-blur-sm relative overflow-hidden">
+        <div className={`border p-5 rounded-2xl shadow-xl backdrop-blur-sm relative overflow-hidden transition-all ${
+          isOverrideActive
+            ? 'bg-amber-950/20 border-amber-500/40 shadow-amber-500/10'
+            : 'bg-slate-800/80 border-slate-700/60'
+        }`}>
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Emails This Hour</p>
-            <span className="text-[11px] font-mono text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20">
-              UTC Hour {quota?.hour ?? '--'}:00
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Emails This Hour {isOverrideActive && <span className="text-amber-400 font-extrabold">(OVERRIDE)</span>}
+            </p>
+            <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md border ${
+              isOverrideActive
+                ? 'text-amber-300 bg-amber-500/20 border-amber-500/40 font-bold'
+                : 'text-blue-400 bg-blue-500/10 border-blue-500/20'
+            }`}>
+              {isOverrideActive ? '⚡ 550 CAP' : `UTC Hour ${quota?.hour ?? '--'}:00`}
             </span>
           </div>
           <p className="text-3xl sm:text-4xl font-black text-white mt-2">
             {sentThisHour}
-            <span className="text-base font-normal text-gray-400"> / 70</span>
+            <span className="text-base font-normal text-gray-400"> / {effectiveHourLimit}</span>
           </p>
           <div className="w-full bg-gray-700/70 rounded-full h-2.5 mt-3 overflow-hidden">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                hourlyPercent >= 90 ? 'bg-rose-500' : hourlyPercent >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
+                isOverrideActive
+                  ? 'bg-amber-400'
+                  : hourlyPercent >= 90 ? 'bg-rose-500' : hourlyPercent >= 70 ? 'bg-amber-500' : 'bg-emerald-500'
               }`}
               style={{ width: `${Math.max(5, hourlyPercent)}%` }}
             />
           </div>
           <div className="flex items-center justify-between text-[11px] text-gray-400 mt-2.5">
-            <span>{Math.max(0, 70 - sentThisHour)} slots remaining</span>
-            <span className="text-gray-400 font-medium">Resets in ~{minutesToReset}m</span>
+            <span>
+              {isOverrideActive
+                ? `${quota?.can_send ?? 0} slots available to send now`
+                : `${Math.max(0, 70 - sentThisHour)} slots remaining`}
+            </span>
+            <span className={isOverrideActive ? 'text-amber-400 font-bold' : 'text-gray-400 font-medium'}>
+              {isOverrideActive ? '⚡ Hourly Override Active' : `Resets in ~${minutesToReset}m`}
+            </span>
           </div>
         </div>
 
@@ -283,6 +362,69 @@ export default function EmailQueuePage() {
           </p>
         </div>
       </div>
+
+      {/* ─── PM Hourly Limit Override & Quota Controls ─── */}
+      {isPM && (
+        <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${
+              isOverrideActive ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-gray-400 border border-slate-700'
+            }`}>
+              ⚡
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">Hourly Quota Limit Override</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-extrabold border ${
+                  isOverrideActive
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                    : 'bg-slate-800 text-gray-400 border-slate-700'
+                }`}>
+                  {isOverrideActive ? 'OVERRIDE ACTIVE (UP TO 550/DAY)' : 'STANDARD (70/HOUR)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {isOverrideActive
+                  ? 'Hourly restriction is lifted. You can process batches of 70 immediately without waiting an hour, up to the daily 550 Brevo limit.'
+                  : 'Standard 70 emails/hour safety cap active. Enable override to process queued passes up to the 550 daily cap.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
+            <button
+              type="button"
+              onClick={handleResetHourlyCounter}
+              disabled={resettingCounter}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50"
+              title="Reset current hour count to 0"
+            >
+              <span>🔄</span>
+              <span>{resettingCounter ? 'Resetting...' : 'Reset Current Hour to 0'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToggleHourlyOverride}
+              disabled={togglingOverride}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 flex items-center gap-1.5 ${
+                isOverrideActive
+                  ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-amber-500/30 font-extrabold'
+                  : 'bg-primary-600 hover:bg-primary-500 text-white shadow-primary-600/30'
+              }`}
+            >
+              <span>⚡</span>
+              <span>
+                {togglingOverride
+                  ? 'Updating...'
+                  : isOverrideActive
+                    ? 'Disable Hourly Override'
+                    : 'Enable Hourly Override (550 Max)'}
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table Section */}
       <div className="bg-slate-800/80 border border-slate-700/60 rounded-2xl overflow-hidden shadow-xl">

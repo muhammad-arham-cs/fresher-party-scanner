@@ -2,6 +2,7 @@ import { createAdminClient } from '@/lib/supabase';
 import { sendEmailWithFailover } from '@/lib/email-service';
 import { logAuditEvent } from '@/lib/audit';
 import { buildPassAttachment, buildPassEmailHtml } from '@/lib/pass-email-helpers';
+import { getSystemSettings } from '@/lib/system-settings';
 import { v4 as uuidv4 } from 'uuid';
 
 export const HOURLY_LIMIT = 70;
@@ -32,6 +33,7 @@ export interface QuotaStatus {
   queued_count: number;
   is_cooldown: boolean;
   cooldown_reason?: string;
+  hourly_override_active: boolean;
 }
 
 function getUtcDateAndHour() {
@@ -166,9 +168,15 @@ export async function enqueueEmailBatch(items: EnqueueEmailParams[]): Promise<nu
 /**
  * Get current hourly and daily quota status (70/hr, 550/day).
  */
+/**
+ * Get current hourly and daily quota status (70/hr, 550/day).
+ * Supports PM hourly override to expand hourly capacity up to daily limit (550).
+ */
 export async function getQuotaStatus(): Promise<QuotaStatus> {
   const supabase = createAdminClient();
   const { date, hour } = getUtcDateAndHour();
+  const settings = await getSystemSettings();
+  const isOverride = Boolean(settings.hourly_email_override);
 
   // 1. Get sum of emails sent today from email_quota
   const { data: todayRows } = await supabase
@@ -194,7 +202,11 @@ export async function getQuotaStatus(): Promise<QuotaStatus> {
     .select('*', { count: 'exact', head: true })
     .eq('status', 'queued');
 
-  const hourly_remaining = Math.max(0, HOURLY_LIMIT - hourly_used);
+  const effectiveHourlyLimit = isOverride ? DAILY_LIMIT : HOURLY_LIMIT;
+  const hourly_remaining = isOverride
+    ? Math.max(0, DAILY_LIMIT - daily_used)
+    : Math.max(0, HOURLY_LIMIT - hourly_used);
+
   const daily_remaining = Math.max(0, DAILY_LIMIT - daily_used);
   const can_send = Math.min(hourly_remaining, daily_remaining);
 
@@ -202,8 +214,10 @@ export async function getQuotaStatus(): Promise<QuotaStatus> {
   let cooldown_reason: string | undefined;
   if (is_cooldown) {
     cooldown_reason = daily_remaining === 0
-      ? `Daily limit reached (550/${DAILY_LIMIT}). Resumes tomorrow at 00:00 UTC.`
-      : `Hourly limit reached (${hourly_used}/${HOURLY_LIMIT}). Resumes next hour.`;
+      ? `Daily limit reached (${DAILY_LIMIT}/${DAILY_LIMIT}). Resumes tomorrow at 00:00 UTC.`
+      : isOverride
+        ? `Daily limit reached (${daily_used}/${DAILY_LIMIT}). Resumes tomorrow at 00:00 UTC.`
+        : `Hourly limit reached (${hourly_used}/${HOURLY_LIMIT}). Resumes next hour (or enable PM Hourly Override).`;
   }
 
   return {
@@ -211,7 +225,7 @@ export async function getQuotaStatus(): Promise<QuotaStatus> {
     hour,
     minutes_to_reset: getUtcDateAndHour().minutes_to_reset,
     hourly_used,
-    hourly_limit: HOURLY_LIMIT,
+    hourly_limit: effectiveHourlyLimit,
     hourly_remaining,
     daily_used,
     daily_limit: DAILY_LIMIT,
@@ -220,7 +234,27 @@ export async function getQuotaStatus(): Promise<QuotaStatus> {
     queued_count: queuedCount || 0,
     is_cooldown,
     cooldown_reason,
+    hourly_override_active: isOverride,
   };
+}
+
+/**
+ * Reset current hour email quota count to 0 (PM utility).
+ */
+export async function resetHourlyQuota(): Promise<boolean> {
+  try {
+    const supabase = createAdminClient();
+    const { date, hour } = getUtcDateAndHour();
+    const { error } = await supabase
+      .from('email_quota')
+      .delete()
+      .eq('date', date)
+      .eq('hour', hour);
+    return !error;
+  } catch (err) {
+    console.error('Failed to reset hourly quota:', err);
+    return false;
+  }
 }
 
 /**
@@ -256,11 +290,11 @@ export async function recordEmailsSent(count: number, _apiUsed: string = 'primar
   }
 }
 
-
 /**
  * Process queued emails up to allowable quota using Dual Brevo + Grok failover.
+ * Dispatches safely in batches of up to maxBatchSize (default 70).
  */
-export async function processEmailQueue(): Promise<{
+export async function processEmailQueue(maxBatchSize: number = 70): Promise<{
   processed: number;
   failed: number;
   status: QuotaStatus;
@@ -271,13 +305,14 @@ export async function processEmailQueue(): Promise<{
   }
 
   const supabase = createAdminClient();
+  const limitCount = Math.min(quota.can_send, maxBatchSize);
 
   const { data: items, error } = await supabase
     .from('email_queue')
     .select('*')
     .eq('status', 'queued')
     .order('created_at', { ascending: true })
-    .limit(quota.can_send);
+    .limit(limitCount);
 
   if (error || !items || items.length === 0) {
     return { processed: 0, failed: 0, status: quota };

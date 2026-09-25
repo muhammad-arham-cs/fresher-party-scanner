@@ -52,10 +52,50 @@ export default function ManualEntryPage() {
   const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
   const [resolvingConflictId, setResolvingConflictId] = useState<string | null>(null);
 
+  // Global Settings State
+  const [requireEmail, setRequireEmail] = useState(true);
+  const [togglingSetting, setTogglingSetting] = useState(false);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setRequireEmail(Boolean(data.settings.require_email_for_manual_pass));
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleToggleEmailRequirement = async () => {
+    if (!isPM || togglingSetting) return;
+    const nextVal = !requireEmail;
+    setTogglingSetting(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ require_email_for_manual_pass: nextVal }),
+      });
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setRequireEmail(Boolean(data.settings.require_email_for_manual_pass));
+      } else {
+        alert(data.message || 'Failed to update email requirement setting');
+      }
+    } catch {
+      alert('Error updating setting');
+    } finally {
+      setTogglingSetting(false);
+    }
+  };
+
   // Check Session on mount to customize PM experience
   useEffect(() => {
     async function loadSession() {
       try {
+        fetchSettings();
         const res = await fetch('/api/auth/session');
         const data = await res.json();
         if (data.success && data.admin) {
@@ -373,9 +413,58 @@ export default function ManualEntryPage() {
             ? passMode === 'stealth'
               ? 'Generate VIP or offline stealth passes. Stealth passes are hidden from all other admins, public logs, and queue metrics.'
               : 'Generate standard official passes. Fully visible across Pass Management, Scanner Logs, Email Queue, and Audit Logs.'
-            : 'Add a student entry directly for late cash registrations or society members.'}
+            : 'Add a student entry directly for late registrations or society members.'}
         </p>
       </div>
+
+      {/* ─── PM Global Email Mandatory Toggle ─── */}
+      {isPM && !success && (
+        <div className="p-4 rounded-2xl bg-slate-900/90 border border-slate-800 shadow-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${
+              requireEmail ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+            }`}>
+              {requireEmail ? '✉️' : '🔓'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold text-white">Manual Pass Email Requirement</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-extrabold border ${
+                  requireEmail
+                    ? 'bg-primary-500/20 text-primary-300 border-primary-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {requireEmail ? 'EMAIL MANDATORY' : 'EMAIL OPTIONAL (LIFTED OFF)'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {requireEmail
+                  ? 'All admins must enter student email to generate manual passes.'
+                  : 'Mandatory email lifted! Admins can generate passes with or without student email (direct PDF download).'}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleToggleEmailRequirement}
+            disabled={togglingSetting}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 disabled:opacity-50 whitespace-nowrap self-start sm:self-auto ${
+              requireEmail
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+            }`}
+          >
+            {togglingSetting ? 'Saving...' : requireEmail ? 'Lift Email Requirement' : 'Enforce Email Requirement'}
+          </button>
+        </div>
+      )}
+
+      {!isPM && !requireEmail && (
+        <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-300">
+          <span>🟢</span>
+          <span><strong>Email entry is optional:</strong> You can generate a pass with or without email and download the PDF pass directly.</span>
+        </div>
+      )}
 
       {/* ─── PM Pass Mode Selector (Only visible to Project Manager) ─── */}
       {isPM && !success && (
@@ -592,12 +681,12 @@ export default function ManualEntryPage() {
           </div>
 
           <Input
-            label={(isPM && passMode === 'stealth') ? 'Email (Optional)' : 'Email *'}
+            label={(!requireEmail || (isPM && passMode === 'stealth')) ? 'Email (Optional)' : 'Email *'}
             type="email"
             value={form.email}
             onChange={set('email')}
-            placeholder={(isPM && passMode === 'stealth') ? 'Optional — leave blank for physical pass' : 'student@duet.edu.pk'}
-            required={!isPM || passMode === 'normal'}
+            placeholder={(!requireEmail || (isPM && passMode === 'stealth')) ? 'Optional — leave blank for physical pass / direct download' : 'student@duet.edu.pk'}
+            required={Boolean(requireEmail && (!isPM || passMode === 'normal'))}
             id="me-email"
           />
 

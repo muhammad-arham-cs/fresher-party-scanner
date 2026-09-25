@@ -8,6 +8,7 @@ import { checkEmailQuota, incrementEmailQuota } from '@/lib/email-quota';
 import { sendEmailWithFailover } from '@/lib/email-service';
 import { logAuditEvent } from '@/lib/audit';
 import { buildPassAttachment, buildPassEmailHtml } from '@/lib/pass-email-helpers';
+import { getSystemSettings } from '@/lib/system-settings';
 import { v4 as uuidv4 } from 'uuid';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,8 +38,10 @@ export async function POST(req: NextRequest) {
 
     // Only PM can activate stealth mode; default is 'normal'
     const isStealth = Boolean(isPM && pass_mode === 'stealth');
+    const settings = await getSystemSettings();
+    const requireEmail = Boolean(settings.require_email_for_manual_pass);
 
-    // 2. Validation: Stealth requires only name & roll_no; Normal requires all fields
+    // 2. Validation: Stealth requires only name & roll_no; Normal depends on PM email requirement setting
     if (isStealth) {
       if (!name || !roll_no) {
         return NextResponse.json({
@@ -47,10 +50,12 @@ export async function POST(req: NextRequest) {
         }, { status: 400 });
       }
     } else {
-      if (!name || !roll_no || !email || !department || !batch) {
+      if (!name || !roll_no || !department || !batch || (requireEmail && !email)) {
         return NextResponse.json({
           success: false,
-          message: 'Full name, roll number, email, department, and batch are required for Normal pass generation',
+          message: requireEmail
+            ? 'Full name, roll number, email, department, and batch are required for Normal pass generation'
+            : 'Full name, roll number, department, and batch are required for Normal pass generation',
         }, { status: 400 });
       }
     }

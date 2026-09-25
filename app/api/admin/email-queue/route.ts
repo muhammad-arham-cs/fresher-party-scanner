@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkAdminSession, isPMEmail } from '@/lib/admin-auth';
 import { createAdminClient } from '@/lib/supabase';
-import { getQuotaStatus, processEmailQueue, recordDirectEmailSent, recordEmailsSent } from '@/lib/email-queue';
+import { getQuotaStatus, processEmailQueue, recordDirectEmailSent, recordEmailsSent, resetHourlyQuota } from '@/lib/email-queue';
+import { updateSystemSettings } from '@/lib/system-settings';
 import { sendEmailWithFailover } from '@/lib/email-service';
 import { logAuditEvent } from '@/lib/audit';
 
@@ -118,6 +119,7 @@ export async function GET(req: NextRequest) {
       },
       items,
       total: count || 0,
+      is_pm: isPM,
     });
   } catch (err) {
     console.error('Email queue API error:', err);
@@ -130,8 +132,44 @@ export async function POST(req: NextRequest) {
     const session = await checkAdminSession();
     if (!session) return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 });
 
+    const isPM = session.role === 'PROJECT_MANAGER' || isPMEmail(session.email);
     const body = await req.json().catch(() => ({}));
     const { action, id, to_email } = body;
+
+    if (action === 'toggle_hourly_override') {
+      if (!isPM) {
+        return NextResponse.json({ success: false, message: 'Access denied: Project Manager only' }, { status: 403 });
+      }
+      const { enabled } = body;
+      await updateSystemSettings({ hourly_email_override: Boolean(enabled) }, session.email);
+      const updatedQuota = await getQuotaStatus();
+      return NextResponse.json({
+        success: true,
+        message: enabled
+          ? '⚡ Hourly limit override ENABLED (Capacity expanded to 550/day)!'
+          : 'Hourly limit restored to standard (70 emails/hour)',
+        quota: updatedQuota,
+      });
+    }
+
+    if (action === 'reset_hourly_quota') {
+      if (!isPM) {
+        return NextResponse.json({ success: false, message: 'Access denied: Project Manager only' }, { status: 403 });
+      }
+      await resetHourlyQuota();
+      await logAuditEvent({
+        action_type: 'setting_changed',
+        performed_by: session.email,
+        user_role: session.role,
+        details: { action: 'reset_hourly_quota', reset_by: session.email },
+      });
+      const updatedQuota = await getQuotaStatus();
+      return NextResponse.json({
+        success: true,
+        message: 'Current hour quota counter reset to 0.',
+        quota: updatedQuota,
+      });
+    }
 
     if (action === 'retry' && id) {
       const supabase = createAdminClient();
@@ -145,7 +183,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'process_now') {
-      const result = await processEmailQueue();
+      const batchSize = typeof body.batch_size === 'number' ? body.batch_size : 70;
+      const result = await processEmailQueue(batchSize);
       return NextResponse.json({
         success: true,
         message: `Processed ${result.processed} emails (${result.failed} failed).`,

@@ -29,6 +29,51 @@ export default function PermissionManagementPage() {
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [migrationNeeded, setMigrationNeeded] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [systemSettings, setSystemSettings] = useState<{
+    require_email_for_manual_pass: boolean;
+    hourly_email_override: boolean;
+  }>({
+    require_email_for_manual_pass: true,
+    hourly_email_override: false,
+  });
+  const [updatingSettingKey, setUpdatingSettingKey] = useState<string | null>(null);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setSystemSettings(data.settings);
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleToggleSystemSetting = async (key: 'require_email_for_manual_pass' | 'hourly_email_override') => {
+    if (updatingSettingKey) return;
+    const nextVal = !systemSettings[key];
+    setUpdatingSettingKey(key);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: nextVal }),
+      });
+      const data = await res.json();
+      if (data.success && data.settings) {
+        setSystemSettings(data.settings);
+        setSuccessToast(`Rule updated: ${key === 'require_email_for_manual_pass' ? 'Email Requirement' : 'Hourly Limit Override'} is now ${nextVal ? 'ON' : 'OFF'}`);
+        setTimeout(() => setSuccessToast(null), 3000);
+      } else {
+        setError(data.message || 'Failed to update setting');
+      }
+    } catch {
+      setError('Error communicating with server');
+    } finally {
+      setUpdatingSettingKey(null);
+    }
+  };
 
   const MIGRATION_SQL = `-- Run this in your Supabase Dashboard -> SQL Editor:
 ALTER TABLE admin_users 
@@ -100,6 +145,7 @@ END $$;`;
 
   useEffect(() => {
     fetchUsers();
+    fetchSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -241,6 +287,102 @@ END $$;`;
           ⚠️ {error}
         </div>
       )}
+
+      {/* ─── Global System Controls & Overrides (PM Only) ─── */}
+      <div className="p-5 rounded-2xl bg-surface-900/90 border border-surface-700/60 shadow-xl space-y-4">
+        <div className="flex items-center justify-between border-b border-surface-800 pb-3">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">⚙️</span>
+            <div>
+              <h3 className="text-sm font-bold text-white">Global Event Operational Rules & Overrides</h3>
+              <p className="text-xs text-surface-400">Settings applied system-wide across all admin users and dispatch engines.</p>
+            </div>
+          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary-500/20 text-primary-300 border border-primary-500/30 font-bold uppercase">
+            Project Manager Only
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Rule 1: Email Mandatory for Manual Pass */}
+          <div className="p-4 rounded-xl bg-surface-950/80 border border-surface-800 flex flex-col justify-between gap-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>✉️</span> Manual Pass Email Requirement
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-extrabold border ${
+                  systemSettings.require_email_for_manual_pass
+                    ? 'bg-primary-500/20 text-primary-300 border-primary-500/30'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                }`}>
+                  {systemSettings.require_email_for_manual_pass ? 'MANDATORY' : 'OPTIONAL (LIFTED)'}
+                </span>
+              </div>
+              <p className="text-[11px] text-surface-400 mt-1">
+                {systemSettings.require_email_for_manual_pass
+                  ? 'Admins are strictly required to input student email for manual passes.'
+                  : 'Mandatory email lifted! Admins can generate passes with or without email and download PDF directly.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleSystemSetting('require_email_for_manual_pass')}
+              disabled={updatingSettingKey === 'require_email_for_manual_pass'}
+              className={`w-full py-2 px-3 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 ${
+                systemSettings.require_email_for_manual_pass
+                  ? 'bg-surface-800 hover:bg-surface-700 text-surface-200 border border-surface-700'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+              }`}
+            >
+              {updatingSettingKey === 'require_email_for_manual_pass'
+                ? 'Updating...'
+                : systemSettings.require_email_for_manual_pass
+                  ? 'Lift Email Requirement'
+                  : 'Enforce Email Requirement'}
+            </button>
+          </div>
+
+          {/* Rule 2: Hourly Email Limit Override */}
+          <div className="p-4 rounded-xl bg-surface-950/80 border border-surface-800 flex flex-col justify-between gap-3">
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>⚡</span> Hourly Email Limit Override
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-extrabold border ${
+                  systemSettings.hourly_email_override
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/30 animate-pulse'
+                    : 'bg-surface-800 text-surface-400 border-surface-700'
+                }`}>
+                  {systemSettings.hourly_email_override ? 'ACTIVE (UP TO 550)' : 'STANDARD (70/HR)'}
+                </span>
+              </div>
+              <p className="text-[11px] text-surface-400 mt-1">
+                {systemSettings.hourly_email_override
+                  ? '70 emails/hour ceiling is bypassed. Queue can be processed in consecutive batches up to the daily 550 limit.'
+                  : 'Standard 70 emails/hour safety cap active on email dispatcher.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleToggleSystemSetting('hourly_email_override')}
+              disabled={updatingSettingKey === 'hourly_email_override'}
+              className={`w-full py-2 px-3 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 ${
+                systemSettings.hourly_email_override
+                  ? 'bg-amber-500 hover:bg-amber-400 text-black font-extrabold shadow-amber-500/20'
+                  : 'bg-primary-600 hover:bg-primary-500 text-white shadow-primary-600/20'
+              }`}
+            >
+              {updatingSettingKey === 'hourly_email_override'
+                ? 'Updating...'
+                : systemSettings.hourly_email_override
+                  ? 'Disable Hourly Override'
+                  : 'Enable Hourly Override (550 Max)'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       {/* Search & Stats Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">

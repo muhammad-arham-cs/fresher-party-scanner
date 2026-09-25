@@ -13,7 +13,8 @@ export type AuditActionType =
   | 'admin_user_reactivated'
   | 'pass_revoked'
   | 'pass_restored'
-  | 'pass_deleted';
+  | 'pass_deleted'
+  | 'setting_changed';
 
 export interface LogAuditParams {
   action_type: AuditActionType;
