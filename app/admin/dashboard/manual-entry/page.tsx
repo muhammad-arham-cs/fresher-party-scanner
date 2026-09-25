@@ -167,8 +167,19 @@ export default function ManualEntryPage() {
         return;
       }
     } else {
-      if (!form.name.trim() || !form.roll_no.trim() || !form.email.trim() || !form.department.trim() || !form.batch.trim()) {
-        setError('Full Name, Roll Number, Email, Department, and Batch are required for Normal pass generation.');
+      const emailIsRequired = Boolean(requireEmail);
+      if (
+        !form.name.trim() ||
+        !form.roll_no.trim() ||
+        !form.department.trim() ||
+        !form.batch.trim() ||
+        (emailIsRequired && !form.email.trim())
+      ) {
+        setError(
+          emailIsRequired
+            ? 'Full Name, Roll Number, Email, Department, and Batch are required for Normal pass generation.'
+            : 'Full Name, Roll Number, Department, and Batch are required for Normal pass generation.'
+        );
         return;
       }
     }
@@ -663,7 +674,7 @@ export default function ManualEntryPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
-              label="Student Name *"
+              label="Student Name"
               value={form.name}
               onChange={set('name')}
               placeholder="e.g. Ali Khan"
@@ -671,7 +682,7 @@ export default function ManualEntryPage() {
               id="me-name"
             />
             <Input
-              label="Roll Number *"
+              label="Roll Number"
               value={form.roll_no}
               onChange={set('roll_no')}
               placeholder="e.g. 24F-CS-001"
@@ -681,7 +692,7 @@ export default function ManualEntryPage() {
           </div>
 
           <Input
-            label={(!requireEmail || (isPM && passMode === 'stealth')) ? 'Email (Optional)' : 'Email *'}
+            label={(!requireEmail || (isPM && passMode === 'stealth')) ? 'Email (Optional)' : 'Email'}
             type="email"
             value={form.email}
             onChange={set('email')}
